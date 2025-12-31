@@ -8,7 +8,7 @@ Communication protocol for the Place collaborative canvas server.
 - **Format:** JSON text messages
 - **Encoding:** UTF-8
 - **Development:** `ws://localhost:3000`
-- **Production:** `wss://your-server.railway.app`
+- **Production:** `wss://pixie-production-677d.up.railway.app`
 
 ## Connection Lifecycle
 
