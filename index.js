@@ -49,6 +49,14 @@ wss.on('connection', (ws) => {
       return;
     }
     
+    if (message.type === 'ping') {
+      ws.send(JSON.stringify({
+        type: 'pong',
+        clients: clients.size
+      }));
+      return;
+    }
+    
     if (!isValidPaint(message)) return;
 
     const { x, y, color } = message;

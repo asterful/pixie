@@ -130,6 +130,54 @@ Sent to all connected clients when any client paints a pixel.
 
 ---
 
+### 4. Client Count Request (Client → Server)
+
+Request the current number of connected clients.
+
+**Message:**
+```json
+{
+  "type": "ping"
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Must be `"ping"` |
+
+**Notes:**
+- No other fields required
+- Can be sent at any time after connection
+- Recommended polling interval: 3-5 seconds
+
+---
+
+### 5. Client Count Response (Server → Client)
+
+Response with the current number of connected clients.
+
+**Message:**
+```json
+{
+  "type": "pong",
+  "clients": 42
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `"pong"` |
+| `clients` | integer | Number of currently connected WebSocket clients |
+
+**Notes:**
+- Sent only in response to a `ping` message
+- Count includes the requesting client
+- Count may change between requests
+
+---
+
 ## Error Handling
 
 **Server behavior:**

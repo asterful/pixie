@@ -19,9 +19,16 @@
       padding: 10px 20px;
       border-radius: 4px;
       font-size: 14px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
     }
     #status.connected { background: #2d5016; }
     #status.disconnected { background: #5a1616; }
+    #client-count {
+      font-size: 12px;
+      color: #aaa;
+    }
     #canvas-container {
       border: 2px solid #333;
       background: #000;
@@ -50,7 +57,10 @@
   </style>
 </head>
 <body>
-  <div id="status" class="disconnected">Connecting...</div>
+  <div id="status" class="disconnected">
+    <span id="connection-status">Connecting...</span>
+    <span id="client-count"></span>
+  </div>
   <div id="canvas-container">
     <canvas id="board"></canvas>
   </div>
@@ -61,9 +71,8 @@
   <div id="info">Click canvas to paint • Each pixel broadcasts to all clients</div>
 
   <script>
-    const canvas = document.getElementById('board');
-    const ctx = canvas.getContext('2d');
-    const status = document.getElementById('status');
+    const cannectionStatus = document.getElementById('connection-status');
+    const clientCount = document.getElementById('client-count');
     const colorPicker = document.getElementById('colorPicker');
     const coords = document.getElementById('coords');
 
@@ -72,17 +81,38 @@
 
     let board = [];
     let ws = null;
+    let pingIntervalWS_URL = 'ws://localhost:3000';
+
+    let board = [];
+    let ws = null;
 
     function connect() {
-      ws = new WebSocket(WS_URL);
-
+      wsconnectionStatus.textContent = 'Connected';
+        status.className = 'connected';
+        
+        // Request client count every 3 seconds
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 3000);
+        
+        // Initial request
+        ws.send(JSON.stringify({ type: 'ping' }))
       ws.onopen = () => {
         status.textContent = 'Connected';
         status.className = 'connected';
-      };
+      }; else if (msg.type === 'pong') {
+          clientCount.textContent = `${msg.clients} client${msg.clients !== 1 ? 's' : ''} connected`;
+        }
 
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      wsconnectionStatus.textContent = 'Disconnected - Reconnecting...';
+        status.className = 'disconnected';
+        clientCount.textContent = '';
+        if (pingInterval) {
+          clearInterval(pingInterval);
+          pingInterval = null;
+        connectionS;
 
         if (msg.type === 'init') {
           board = msg.board;
