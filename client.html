@@ -71,7 +71,10 @@
   <div id="info">Click canvas to paint • Each pixel broadcasts to all clients</div>
 
   <script>
-    const cannectionStatus = document.getElementById('connection-status');
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
+    const connectionStatus = document.getElementById('connection-status');
     const clientCount = document.getElementById('client-count');
     const colorPicker = document.getElementById('colorPicker');
     const coords = document.getElementById('coords');
@@ -81,13 +84,13 @@
 
     let board = [];
     let ws = null;
-    let pingIntervalWS_URL = 'wss://pixie-production-677d.up.railway.app';
-
-    let board = [];
-    let ws = null;
+    let pingInterval = null;
 
     function connect() {
-      wsconnectionStatus.textContent = 'Connected';
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        connectionStatus.textContent = 'Connected';
         status.className = 'connected';
         
         // Request client count every 3 seconds
@@ -98,21 +101,11 @@
         }, 3000);
         
         // Initial request
-        ws.send(JSON.stringify({ type: 'ping' }))
-      ws.onopen = () => {
-        status.textContent = 'Connected';
-        status.className = 'connected';
-      }; else if (msg.type === 'pong') {
-          clientCount.textContent = `${msg.clients} client${msg.clients !== 1 ? 's' : ''} connected`;
-        }
+        ws.send(JSON.stringify({ type: 'ping' }));
+      };
 
-      wsconnectionStatus.textContent = 'Disconnected - Reconnecting...';
-        status.className = 'disconnected';
-        clientCount.textContent = '';
-        if (pingInterval) {
-          clearInterval(pingInterval);
-          pingInterval = null;
-        connectionS;
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
 
         if (msg.type === 'init') {
           board = msg.board;
@@ -122,17 +115,24 @@
         } else if (msg.type === 'update') {
           board[msg.y][msg.x] = msg.color;
           drawPixel(msg.x, msg.y, msg.color);
+        } else if (msg.type === 'pong') {
+          clientCount.textContent = `${msg.clients} client${msg.clients !== 1 ? 's' : ''} connected`;
         }
       };
 
       ws.onclose = () => {
-        status.textContent = 'Disconnected - Reconnecting...';
+        connectionStatus.textContent = 'Disconnected - Reconnecting...';
         status.className = 'disconnected';
+        clientCount.textContent = '';
+        if (pingInterval) {
+          clearInterval(pingInterval);
+          pingInterval = null;
+        }
         setTimeout(connect, 1000);
       };
 
       ws.onerror = () => {
-        status.textContent = 'Connection Error';
+        connectionStatus.textContent = 'Connection Error';
         status.className = 'disconnected';
       };
     }
