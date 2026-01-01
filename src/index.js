@@ -1,13 +1,16 @@
 const WebSocket = require('ws');
-const Board = require('./board');
 const { parseMessage, validatePaintMessage } = require('./utils');
-const { PORT, BOARD_WIDTH, BOARD_HEIGHT, DEFAULT_COLOR, MESSAGE_TYPES } = require('./constants');
+const { PORT, MESSAGE_TYPES, SESSION_NAME } = require('./constants');
+const { initializeBoard, startAutosave, saveHistory } = require('./storage');
 
-// Initialize board and clients
-const board = new Board(BOARD_WIDTH, BOARD_HEIGHT, DEFAULT_COLOR);
+// Global state
+let board;
 const clients = new Set();
 
-// Helper functions
+// ============================================================================
+// WebSocket Message Handlers
+// ============================================================================
+
 function broadcast(message) {
   const data = JSON.stringify(message);
   clients.forEach(client => {
@@ -26,13 +29,12 @@ function sendToClient(client, message) {
 function sendInitialState(ws) {
   sendToClient(ws, {
     type: MESSAGE_TYPES.INIT,
-    width: BOARD_WIDTH,
-    height: BOARD_HEIGHT,
+    width: board.width,
+    height: board.height,
     board: board.getState()
   });
 }
 
-// Message handlers
 function handlePing(ws) {
   sendToClient(ws, {
     type: MESSAGE_TYPES.PONG,
@@ -56,15 +58,17 @@ function handlePaint(message) {
 }
 
 function handleHistory(ws) {
-  const segments = board.segments;
   sendToClient(ws, {
     type: MESSAGE_TYPES.HISTORY_RESPONSE,
-    segments: segments,
+    segments: board.segments,
     stats: board.getHistoryStats()
   });
 }
 
-// WebSocket server setup
+// ============================================================================
+// WebSocket Server Setup
+// ============================================================================
+
 const wss = new WebSocket.Server({ port: PORT });
 
 wss.on('connection', (ws) => {
@@ -100,7 +104,28 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
-// Server startup and shutdown
-console.log(`Place WebSocket Server\nPort: ${PORT} | Board: ${BOARD_WIDTH}x${BOARD_HEIGHT}`);
-process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));
+// ============================================================================
+// Server Lifecycle
+// ============================================================================
+
+async function shutdown() {
+  console.log('[Shutdown] Saving final state...');
+  await saveHistory(board.segments, board.totalChanges);
+  process.exit(0);
+}
+
+async function start() {
+  board = await initializeBoard();
+  startAutosave(board);
+  console.log(`Place WebSocket Server\nSession: ${SESSION_NAME}\nPort: ${PORT} | Board: ${board.width}x${board.height}`);
+}
+
+// Start server
+start().catch(err => {
+  console.error('[Error] Failed to start server:', err);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

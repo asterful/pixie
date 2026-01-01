@@ -4,6 +4,11 @@ module.exports = {
   BOARD_HEIGHT: 256,
   DEFAULT_COLOR: '#FFFFFF',
   
+  // Storage configuration
+  SESSION_NAME: 'newyears-2025',
+  STORAGE_PATH: '/data',
+  AUTOSAVE_INTERVAL_MS: 2 * 60 * 1000, // 2 minutes
+  
   MESSAGE_TYPES: {
     PING: 'ping',
     PONG: 'pong',

@@ -18,6 +18,37 @@ class Board {
     this.totalChanges = 0;
   }
 
+  // Load board from saved history
+  static fromHistory(historyData, defaultColor = '#FFFFFF', snapshotInterval = 200) {
+    if (!historyData || !historyData.segments || historyData.segments.length === 0) {
+      throw new Error('Invalid history data: missing segments');
+    }
+    
+    // Get dimensions from the saved snapshot
+    const firstSnapshot = historyData.segments[0].snapshot;
+    const height = firstSnapshot.length;
+    const width = firstSnapshot[0].length;
+    
+    console.log(`[Board] Loading from history: ${width}x${height} board`);
+    
+    const board = new Board(width, height, defaultColor, snapshotInterval);
+    board.segments = historyData.segments;
+    board.totalChanges = historyData.totalChanges || 0;
+    
+    // Reconstruct current grid state from last segment
+    const lastSegment = board.segments[board.segments.length - 1];
+    board.grid = lastSegment.snapshot.map(row => [...row]);
+    
+    // Apply any remaining changes in the last segment
+    for (const change of lastSegment.changes) {
+      board.grid[change.y][change.x] = change.color;
+    }
+    
+    console.log(`[Board] Restored from history: ${board.totalChanges} changes, ${board.segments.length} segments`);
+    
+    return board;
+  }
+
   cloneGrid() {
     return this.grid.map(row => [...row]);
   }
