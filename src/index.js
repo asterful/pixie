@@ -55,6 +55,15 @@ function handlePaint(message) {
   });
 }
 
+function handleHistory(ws) {
+  const segments = board.segments;
+  sendToClient(ws, {
+    type: MESSAGE_TYPES.HISTORY_RESPONSE,
+    segments: segments,
+    stats: board.getHistoryStats()
+  });
+}
+
 // WebSocket server setup
 const wss = new WebSocket.Server({ port: PORT });
 
@@ -75,8 +84,11 @@ wss.on('connection', (ws) => {
         handlePaint(message);
         break;
 
+      case MESSAGE_TYPES.HISTORY:
+        handleHistory(ws);
+        break;
+
       default:
-        // Unknown message type - ignore
         break;
     }
   });

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Place Timeline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: monospace;
+      background: #1a1a1a;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      gap: 15px;
+    }
+    #status {
+      padding: 10px 20px;
+      border-radius: 4px;
+      font-size: 14px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+    }
+    #status.connected { background: #2d5016; }
+    #status.disconnected { background: #5a1616; }
+    #canvas-container {
+      border: 2px solid #333;
+      background: #000;
+    }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      width: 768px;
+      height: 768px;
+    }
+    #timeline-controls {
+      width: 800px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+    }
+    #timeline-slider {
+      width: 100%;
+      height: 30px;
+      cursor: pointer;
+    }
+    #timeline-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #aaa;
+    }
+    button {
+      padding: 10px 20px;
+      background: #4a4a4a;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #5a5a5a;
+    }
+    button:active {
+      background: #3a3a3a;
+    }
+    #stats {
+      display: flex;
+      gap: 20px;
+      font-size: 12px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div id="status" class="disconnected">
+    <span id="status-text">Disconnected</span>
+    <span id="info"></span>
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="canvas" width="256" height="256"></canvas>
+  </div>
+
+  <div id="timeline-controls">
+    <div id="stats">
+      <span id="stat-segments">Segments: 0</span>
+      <span id="stat-changes">Total Changes: 0</span>
+      <span id="stat-current">Current Time: --</span>
+    </div>
+    
+    <input type="range" id="timeline-slider" min="0" max="100" value="100" disabled>
+    
+    <div id="timeline-info">
+      <span id="start-time">--</span>
+      <span id="end-time">--</span>
+    </div>
+    
+    <button id="refresh-btn" disabled>Refresh History</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+    const statusText = document.getElementById('status-text');
+    const infoEl = document.getElementById('info');
+    const slider = document.getElementById('timeline-slider');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const startTimeEl = document.getElementById('start-time');
+    const endTimeEl = document.getElementById('end-time');
+    const statSegments = document.getElementById('stat-segments');
+    const statChanges = document.getElementById('stat-changes');
+    const statCurrent = document.getElementById('stat-current');
+
+    let ws = null;
+    let width = 256;
+    let height = 256;
+    let segments = [];
+    let minTimestamp = 0;
+    let maxTimestamp = 0;
+
+    function connect() {
+      ws = new WebSocket('ws://localhost:3000');
+
+      ws.onopen = () => {
+        statusEl.className = 'connected';
+        statusText.textContent = 'Connected';
+        refreshBtn.disabled = false;
+        requestHistory();
+      };
+
+      ws.onclose = () => {
+        statusEl.className = 'disconnected';
+        statusText.textContent = 'Disconnected';
+        refreshBtn.disabled = true;
+        slider.disabled = true;
+        setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        handleMessage(message);
+      };
+    }
+
+    function handleMessage(message) {
+      switch (message.type) {
+        case 'init':
+          width = message.width;
+          height = message.height;
+          canvas.width = width;
+          canvas.height = height;
+          drawBoard(message.board);
+          break;
+
+        case 'history_response':
+          segments = message.segments;
+          updateTimeline();
+          infoEl.textContent = `Segments: ${message.stats.segments} | Changes: ${message.stats.totalChanges}`;
+          statSegments.textContent = `Segments: ${message.stats.segments}`;
+          statChanges.textContent = `Total Changes: ${message.stats.totalChanges}`;
+          break;
+
+        case 'update':
+          // Ignore live updates in timeline view
+          break;
+      }
+    }
+
+    function requestHistory() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'history' }));
+      }
+    }
+
+    function updateTimeline() {
+      if (segments.length === 0) return;
+
+      minTimestamp = segments[0].timestamp;
+      
+      // Get max timestamp from last segment's last change or segment timestamp
+      const lastSegment = segments[segments.length - 1];
+      if (lastSegment.changes.length > 0) {
+        maxTimestamp = lastSegment.changes[lastSegment.changes.length - 1].timestamp;
+      } else {
+        maxTimestamp = lastSegment.timestamp;
+      }
+
+      startTimeEl.textContent = formatTimestamp(minTimestamp);
+      endTimeEl.textContent = formatTimestamp(maxTimestamp);
+
+      slider.min = minTimestamp;
+      slider.max = maxTimestamp;
+      slider.value = maxTimestamp;
+      slider.disabled = false;
+
+      renderAtTimestamp(maxTimestamp);
+    }
+
+    function formatTimestamp(timestamp) {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString();
+    }
+
+    function renderAtTimestamp(timestamp) {
+      // Find the latest segment at or before the timestamp
+      let segmentIndex = segments.length - 1;
+      for (let i = 0; i < segments.length; i++) {
+        if (segments[i].timestamp > timestamp) {
+          segmentIndex = Math.max(0, i - 1);
+          break;
+        }
+      }
+
+      const segment = segments[segmentIndex];
+      const board = segment.snapshot.map(row => [...row]);
+
+      // Replay changes from this segment up to the timestamp
+      for (const change of segment.changes) {
+        if (change.timestamp <= timestamp) {
+          board[change.y][change.x] = change.color;
+        } else {
+          break;
+        }
+      }
+
+      // If timestamp is after this segment, replay from next segments
+      for (let i = segmentIndex + 1; i < segments.length; i++) {
+        const nextSegment = segments[i];
+        if (nextSegment.timestamp > timestamp) {
+          break;
+        }
+        for (const change of nextSegment.changes) {
+          if (change.timestamp <= timestamp) {
+            board[change.y][change.x] = change.color;
+          } else {
+            break;
+          }
+        }
+      }
+
+      drawBoard(board);
+      statCurrent.textContent = `Current Time: ${formatTimestamp(timestamp)}`;
+    }
+
+    function drawBoard(board) {
+      const imageData = ctx.createImageData(width, height);
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const color = board[y][x];
+          const rgb = hexToRgb(color);
+          const index = (y * width + x) * 4;
+          imageData.data[index] = rgb.r;
+          imageData.data[index + 1] = rgb.g;
+          imageData.data[index + 2] = rgb.b;
+          imageData.data[index + 3] = 255;
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 255, g: 255, b: 255 };
+    }
+
+    // Event listeners
+    slider.addEventListener('input', (e) => {
+      const timestamp = parseInt(e.target.value);
+      renderAtTimestamp(timestamp);
+    });
+
+    refreshBtn.addEventListener('click', () => {
+      requestHistory();
+    });
+
+    // Connect on load
+    connect();
+  </script>
+</body>
+</html>

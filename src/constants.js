@@ -9,6 +9,8 @@ module.exports = {
     PONG: 'pong',
     PAINT: 'paint',
     INIT: 'init',
-    UPDATE: 'update'
+    UPDATE: 'update',
+    HISTORY: 'history',
+    HISTORY_RESPONSE: 'history_response'
   }
 };
