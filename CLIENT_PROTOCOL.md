@@ -185,111 +185,17 @@ Response with the current number of connected clients.
 
 ---
 
-### 6. History Request (Client → Server)
+### 6. History Request (Client → Server) - DEPRECATED
 
-Request the complete history of all board changes.
+**⚠️ DEPRECATED:** This WebSocket operation has been moved to HTTP due to performance concerns. Use `GET /history` HTTP endpoint instead (see HTTP API section below).
 
-**Message:**
-```json
-{
-  "type": "history"
-}
-```
+~~Request the complete history of all board changes via WebSocket.~~
 
-**Fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Must be `"history"` |
-
-**Notes:**
-- Returns entire history with snapshot-based segments
-- Can be sent at any time after connection
-- Use for timeline reconstruction and replay features
+**Note:** This message type is no longer supported. The server will silently ignore `history` message types. Use the HTTP endpoint instead.
 
 ---
 
-### 7. History Response (Server → Client)
-
-Response containing all historical segments with snapshots and changes.
-
-**Message:**
-```json
-{
-  "type": "history_response",
-  "segments": [
-    {
-      "index": 0,
-      "timestamp": 1704067200000,
-      "snapshot": [
-        ["#FFFFFF", "#FFFFFF", ...],
-        ["#FFFFFF", "#FFFFFF", ...]
-      ],
-      "changes": [
-        {"x": 10, "y": 10, "color": "#FF0000", "timestamp": 1704067205000},
-        {"x": 11, "y": 10, "color": "#00FF00", "timestamp": 1704067210000},
-        ...
-      ]
-    },
-    {
-      "index": 200,
-      "timestamp": 1704067300000,
-      "snapshot": [...],
-      "changes": [...]
-    }
-  ],
-  "stats": {
-    "totalChanges": 42,
-    "segments": 3,
-    "snapshotInterval": 20
-  }
-}
-```
-
-**Fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Always `"history_response"` |
-| `segments` | array | Array of history segments (see below) |
-| `stats` | object | Statistics about the history |
-
-**Segment Structure:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `index` | integer | Total number of changes before this segment |
-| `timestamp` | integer | Unix timestamp (ms) when segment was created |
-| `snapshot` | array | 2D array `[height][width]` of hex colors at segment start |
-| `changes` | array | Array of changes in this segment (max = `snapshotInterval` from stats) |
-
-**Change Structure:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `x` | integer | X coordinate of change |
-| `y` | integer | Y coordinate of change |
-| `color` | string | Color (uppercase hex) |
-| `timestamp` | integer | Unix timestamp (ms) when change occurred |
-
-**Stats Structure:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `totalChanges` | integer | Total number of pixel changes |
-| `segments` | integer | Number of history segments |
-| `snapshotInterval` | integer | Server-configured changes per segment (e.g., 200) |
-
-**Notes:**
-- Segments created every `snapshotInterval` changes (server-configured, not hardcoded)
-- Check `stats.snapshotInterval` to know the actual interval value
-- Each segment contains a full board snapshot + incremental changes
-- To reconstruct state at any time:
-  1. Find the latest segment at or before target timestamp
-  2. Start with that segment's snapshot
-  3. Replay changes up to target timestamp
-- Maximum `snapshotInterval` changes need to be replayed for any point in time
-- Response can be large (contains full snapshots)
-- First segment always starts with the initial board state
-
----
-
-### 8. Rate Limit Response (Server → Client)
+### 7. Rate Limit Response (Server → Client)
 
 Sent when a client attempts to paint too quickly.
 
@@ -344,8 +250,101 @@ Sent when a client attempts to paint too quickly.
 - Delivery confirmation
 - Replay or undo
 
+---
+
+## HTTP API
+
+The server provides HTTP endpoints for operations that are too expensive for WebSocket transport.
+
+### GET /history
+
+Retrieve the complete history of all board changes.
+
+**Endpoint:** `GET /history`
+
+**Request:**
+- No parameters required
+- No authentication required
+
+**Response:**
+```json
+{
+  "segments": [
+    {
+      "index": 0,
+      "timestamp": 1704067200000,
+      "snapshot": [
+        ["#FFFFFF", "#FFFFFF", ...],
+        ["#FFFFFF", "#FFFFFF", ...]
+      ],
+      "changes": [
+        {"x": 10, "y": 10, "color": "#FF0000", "timestamp": 1704067205000},
+        {"x": 11, "y": 10, "color": "#00FF00", "timestamp": 1704067210000}
+      ]
+    },
+    {
+      "index": 200,
+      "timestamp": 1704067300000,
+      "snapshot": [],
+      "changes": []
+    }
+  ],
+  "stats": {
+    "totalChanges": 42,
+    "segments": 3,
+    "snapshotInterval": 200
+  }
+}
+```
+
+**Response Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `segments` | array | Array of history segments (see below) |
+| `stats` | object | Statistics about the history |
+
+**Segment Structure:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | integer | Total number of changes before this segment |
+| `timestamp` | integer | Unix timestamp (ms) when segment was created |
+| `snapshot` | array | 2D array `[height][width]` of hex colors at segment start |
+| `changes` | array | Array of changes in this segment (max = `snapshotInterval` from stats) |
+
+**Change Structure:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `x` | integer | X coordinate of change |
+| `y` | integer | Y coordinate of change |
+| `color` | string | Color (uppercase hex) |
+| `timestamp` | integer | Unix timestamp (ms) when change occurred |
+
+**Stats Structure:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalChanges` | integer | Total number of pixel changes |
+| `segments` | integer | Number of history segments |
+| `snapshotInterval` | integer | Server-configured changes per segment (typically 200) |
+
+**HTTP Status Codes:**
+- `200 OK`: Success
+- `404 Not Found`: Invalid endpoint
+
+**Notes:**
+- CORS is enabled (Access-Control-Allow-Origin: *)
+- Response can be very large (contains full snapshots)
+- Use for timeline reconstruction and replay features
+- Segments created every `snapshotInterval` changes
+- To reconstruct state at any time:
+  1. Find the latest segment at or before target timestamp
+  2. Start with that segment's snapshot
+  3. Replay changes up to target timestamp
+- Maximum `snapshotInterval` changes need to be replayed for any point in time
+
+---
+
 ## Security
 - No authentication
 - No authorization  
-- Rate limiting
-- Use `wss://` in production
+- Rate limiting (WebSocket paint operations only)
+- Use `wss://` and `https://` in production

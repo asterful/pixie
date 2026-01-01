@@ -104,6 +104,7 @@
         lucide.createIcons();
 
         const WS_URL = 'wss://pixie-production-677d.up.railway.app';
+        const HTTP_URL = 'https://pixie-production-677d.up.railway.app';
 
         // --- State ---
         const state = {
@@ -178,11 +179,15 @@
         }
 
         function downloadCanvas() {
+            const scale = 10;
             const downloadCanvas = document.createElement('canvas');
-            downloadCanvas.width = state.board.width;
-            downloadCanvas.height = state.board.height;
+            downloadCanvas.width = state.board.width * scale;
+            downloadCanvas.height = state.board.height * scale;
             const downloadCtx = downloadCanvas.getContext('2d');
-            downloadCtx.drawImage(bufferCanvas, 0, 0);
+            
+            // Use nearest neighbor scaling
+            downloadCtx.imageSmoothingEnabled = false;
+            downloadCtx.drawImage(bufferCanvas, 0, 0, state.board.width, state.board.height, 0, 0, state.board.width * scale, state.board.height * scale);
             
             downloadCanvas.toBlob((blob) => {
                 const url = URL.createObjectURL(blob);
@@ -242,9 +247,6 @@
                 case 'init': 
                     initBoard(msg); 
                     break;
-                case 'history_response':
-                    handleHistoryResponse(msg);
-                    break;
                 case 'update':
                     // Ignore live updates in timeline view
                     break;
@@ -265,17 +267,27 @@
             centerView();
         }
 
-        function requestHistory() {
-            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                state.ws.send(JSON.stringify({ type: 'history' }));
+        async function requestHistory() {
+            try {
+                ui.refreshBtn.disabled = true;
+                const response = await fetch(`${HTTP_URL}/history`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                handleHistoryResponse(data);
+            } catch (error) {
+                console.error('Failed to fetch history:', error);
+            } finally {
+                ui.refreshBtn.disabled = false;
             }
         }
 
-        function handleHistoryResponse(msg) {
-            state.timeline.segments = msg.segments;
+        function handleHistoryResponse(data) {
+            state.timeline.segments = data.segments;
             updateTimeline();
-            ui.statSegments.textContent = `Segments: ${msg.stats.segments}`;
-            ui.statChanges.textContent = `Changes: ${msg.stats.totalChanges}`;
+            ui.statSegments.textContent = `Segments: ${data.stats.segments}`;
+            ui.statChanges.textContent = `Changes: ${data.stats.totalChanges}`;
         }
 
         function updateTimeline() {

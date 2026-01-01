@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const http = require('http');
 const { parseMessage, validatePaintMessage } = require('./utils');
 const { PORT, MESSAGE_TYPES, SESSION_NAME, PAINT_COOLDOWN_MS } = require('./constants');
 const { initializeBoard, startAutosave, saveHistory } = require('./storage');
@@ -7,6 +8,7 @@ const { checkBotBehavior } = require('./heuristics');
 // Global state
 let board;
 let wss; // Defined globally, initialized later
+let httpServer; // HTTP server for history endpoint
 const clients = new Set();
 const clientLastPaint = new WeakMap(); // Track last paint time per client
 const clientRequestHistory = new WeakMap(); // Track last 20 requests per client
@@ -99,21 +101,42 @@ function handlePaint(ws, message) {
   });
 }
 
-function handleHistory(ws) {
-  sendToClient(ws, {
-    type: MESSAGE_TYPES.HISTORY_RESPONSE,
-    segments: board.segments,
-    stats: board.getHistoryStats()
-  });
-}
-
 // ============================================================================
-// WebSocket Server Setup
+// HTTP and WebSocket Server Setup
 // ============================================================================
 
-// logic moved into a function so we can control WHEN it starts
+// HTTP server with WebSocket upgrade support
 function startServer() {
-  const server = new WebSocket.Server({ port: PORT });
+  // Create HTTP server
+  httpServer = http.createServer((req, res) => {
+    // Enable CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    // Handle GET /history endpoint
+    if (req.method === 'GET' && req.url === '/history') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        segments: board.segments,
+        stats: board.getHistoryStats()
+      }));
+      return;
+    }
+
+    // Default 404 for other routes
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  });
+
+  // Create WebSocket server attached to HTTP server
+  const server = new WebSocket.Server({ server: httpServer });
 
   server.on('connection', (ws) => {
     clients.add(ws);
@@ -132,10 +155,6 @@ function startServer() {
           handlePaint(ws, message);
           break;
 
-        case MESSAGE_TYPES.HISTORY:
-          handleHistory(ws);
-          break;
-
         default:
           break;
       }
@@ -149,6 +168,9 @@ function startServer() {
 
     ws.on('error', () => {});
   });
+
+  // Start listening
+  httpServer.listen(PORT);
 
   return server;
 }

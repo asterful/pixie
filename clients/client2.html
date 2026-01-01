@@ -376,11 +376,15 @@
         }
 
         function downloadCanvas() {
+            const scale = 10;
             const downloadCanvas = document.createElement('canvas');
-            downloadCanvas.width = state.board.width;
-            downloadCanvas.height = state.board.height;
+            downloadCanvas.width = state.board.width * scale;
+            downloadCanvas.height = state.board.height * scale;
             const downloadCtx = downloadCanvas.getContext('2d');
-            downloadCtx.drawImage(bufferCanvas, 0, 0);
+            
+            // Use nearest neighbor scaling
+            downloadCtx.imageSmoothingEnabled = false;
+            downloadCtx.drawImage(bufferCanvas, 0, 0, state.board.width, state.board.height, 0, 0, state.board.width * scale, state.board.height * scale);
             
             downloadCanvas.toBlob((blob) => {
                 const url = URL.createObjectURL(blob);
