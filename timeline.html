@@ -128,7 +128,7 @@
     let maxTimestamp = 0;
 
     function connect() {
-      ws = new WebSocket('ws://localhost:3000');
+      ws = new WebSocket('wss://pixie-production-677d.up.railway.app');
 
       ws.onopen = () => {
         statusEl.className = 'connected';
