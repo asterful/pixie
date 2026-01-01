@@ -438,10 +438,6 @@
   </div>
 
   <script>
-    let activeBots = new Map(); // Each bot will have { ws, interval, x, y, lastSent }
-    const botStats = {
-      dumb: { sent: 0, accepted: 0, rejected: 0 },
-      basic: { sent: 0, accepted: 0, rejected: 0 },
     const WS_URLS = {
       local: 'ws://localhost:3000',
       production: 'wss://pixie-production-677d.up.railway.app'
@@ -460,16 +456,20 @@
       currentEnv = currentEnv === 'local' ? 'production' : 'local';
       document.getElementById('envToggle').classList.toggle('prod');
       
-      // Update status
-      document.getElementById('status').textContent = `⚫ ${currentEnv} mode selected`;
+      // Update the WebSocket URL input field
+      document.getElementById('wsUrl').value = WS_URLS[currentEnv];
       
       // Stop all active bots
       activeBots.forEach((botData, tier) => {
         stopBot(tier);
       });
       
-      log(`Switched to ${currentEnv} environment`, 'info');
-    }  name: 'Dumb Bot',
+      log(`Switched to ${currentEnv} environment: ${WS_URLS[currentEnv]}`, 'info');
+    }
+
+    const botConfigs = {
+      dumb: {
+        name: 'Dumb Bot',
         baseInterval: 800,
         variance: 0,
         color: '#FF0000'
@@ -546,7 +546,7 @@
       const config = botConfigs[tier];
       const startX = parseInt(document.getElementById('startX').value);
       const startY = parseInt(document.getElementById('startY').value);
-      const wsUrl = document.getElementById('wsUrl').value;
+      const wsUrl = WS_URLS[currentEnv];
       
       let requestCount = 0;
       const maxRequests = 50; // Send 50 requests then stop
