@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixie Place - Timeline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            touch-action: none;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-white select-none font-sans">
+
+    <!-- Main Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Top UI: Tools -->
+    <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
+        <!-- Left side: Stats -->
+        <div class="flex flex-col gap-2 pointer-events-auto">
+            <!-- Stats Badge -->
+            <div class="bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-lg border border-gray-700 shadow-lg flex items-center gap-3">
+                <div class="text-xs text-gray-500 font-mono" id="coords">0, 0</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-col gap-2 pointer-events-auto">
+            <button id="btn-download" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Download Canvas">
+                <i data-lucide="download" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-grid" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-blue-400" title="Toggle Grid">
+                <i data-lucide="grid" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-center" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Reset View">
+                <i data-lucide="focus" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom UI: Timeline Slider -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pointer-events-none">
+        <div class="bg-gray-900/90 backdrop-blur-md p-4 rounded-xl border border-gray-700 shadow-2xl pointer-events-auto">
+            <!-- Timeline Info -->
+            <div class="flex justify-between items-center mb-3 text-xs text-gray-400">
+                <div class="flex gap-4">
+                    <span id="stat-segments">Segments: 0</span>
+                    <span id="stat-changes">Changes: 0</span>
+                </div>
+                <span id="stat-current">--</span>
+            </div>
+            
+            <!-- Timeline Slider -->
+            <div class="relative">
+                <input type="range" id="timeline-slider" min="0" max="100" value="100" disabled
+                    class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer
+                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+                    [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg">
+            </div>
+            
+            <!-- Timeline Time Range -->
+            <div class="flex justify-between mt-2 text-xs text-gray-500 font-mono">
+                <span id="start-time">--</span>
+                <span id="end-time">--</span>
+            </div>
+            
+            <!-- Refresh Button -->
+            <button id="refresh-btn" disabled 
+                class="w-full mt-3 bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                Refresh History
+            </button>
+        </div>
+    </div>
+
+    <!-- Connection Status Overlay -->
+    <div id="connection-overlay" class="absolute inset-0 bg-black/80 flex items-center justify-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div class="text-center">
+            <div class="mb-4 flex justify-center">
+                <i data-lucide="loader-2" class="w-10 h-10 text-white animate-spin"></i>
+            </div>
+            <h2 class="text-xl font-bold text-white">Connecting to Canvas...</h2>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const WS_URL = 'wss://pixie-production-677d.up.railway.app';
+
+        // --- State ---
+        const state = {
+            ws: null,
+            isConnected: false,
+            board: { width: 128, height: 128 },
+            view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
+            drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
+            showGrid: true,
+            hover: { x: -1, y: -1 },
+            timeline: {
+                segments: [],
+                minTimestamp: 0,
+                maxTimestamp: 0
+            }
+        };
+
+        // --- DOM Elements ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const bufferCanvas = document.createElement('canvas');
+        const bufferCtx = bufferCanvas.getContext('2d');
+
+        const ui = {
+            coords: document.getElementById('coords'),
+            overlay: document.getElementById('connection-overlay'),
+            btnGrid: document.getElementById('btn-grid'),
+            btnCenter: document.getElementById('btn-center'),
+            btnDownload: document.getElementById('btn-download'),
+            
+            // Timeline
+            slider: document.getElementById('timeline-slider'),
+            refreshBtn: document.getElementById('refresh-btn'),
+            startTime: document.getElementById('start-time'),
+            endTime: document.getElementById('end-time'),
+            statSegments: document.getElementById('stat-segments'),
+            statChanges: document.getElementById('stat-changes'),
+            statCurrent: document.getElementById('stat-current')
+        };
+
+        // --- Initialization ---
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            setupInput();
+            setupUIHandlers();
+            connectWebSocket();
+            requestAnimationFrame(render);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render(); 
+        }
+
+        function setupUIHandlers() {
+            ui.btnGrid.onclick = () => {
+                state.showGrid = !state.showGrid;
+                ui.btnGrid.classList.toggle('text-blue-400', state.showGrid);
+                ui.btnGrid.classList.toggle('text-gray-400', !state.showGrid);
+            };
+
+            ui.btnCenter.onclick = centerView;
+            ui.btnDownload.onclick = downloadCanvas;
+            ui.refreshBtn.onclick = requestHistory;
+            
+            ui.slider.addEventListener('input', (e) => {
+                const timestamp = parseInt(e.target.value);
+                renderAtTimestamp(timestamp);
+            });
+        }
+
+        function downloadCanvas() {
+            const downloadCanvas = document.createElement('canvas');
+            downloadCanvas.width = state.board.width;
+            downloadCanvas.height = state.board.height;
+            const downloadCtx = downloadCanvas.getContext('2d');
+            downloadCtx.drawImage(bufferCanvas, 0, 0);
+            
+            downloadCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pixie-place-timeline-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        function centerView() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            state.view.zoom = Math.min(canvas.width, canvas.height) / Math.max(state.board.width, state.board.height) * 0.9;
+            if(state.view.zoom < 1) state.view.zoom = 2;
+            state.view.x = centerX - (state.board.width * state.view.zoom) / 2;
+            state.view.y = centerY - (state.board.height * state.view.zoom) / 2;
+        }
+
+        // --- WebSocket Logic ---
+        function connectWebSocket() {
+            ui.overlay.style.opacity = '1';
+            ui.overlay.style.pointerEvents = 'auto';
+
+            state.ws = new WebSocket(WS_URL);
+
+            state.ws.onopen = () => {
+                console.log('Connected');
+                state.isConnected = true;
+                ui.overlay.style.opacity = '0';
+                ui.overlay.style.pointerEvents = 'none';
+                ui.refreshBtn.disabled = false;
+                requestHistory();
+            };
+
+            state.ws.onclose = () => {
+                console.log('Disconnected');
+                state.isConnected = false;
+                ui.overlay.style.opacity = '1';
+                ui.overlay.style.pointerEvents = 'auto';
+                ui.refreshBtn.disabled = true;
+                ui.slider.disabled = true;
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            state.ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'init': 
+                    initBoard(msg); 
+                    break;
+                case 'history_response':
+                    handleHistoryResponse(msg);
+                    break;
+                case 'update':
+                    // Ignore live updates in timeline view
+                    break;
+            }
+        }
+
+        function initBoard(msg) {
+            state.board.width = msg.width;
+            state.board.height = msg.height;
+            bufferCanvas.width = msg.width;
+            bufferCanvas.height = msg.height;
+            msg.board.forEach((row, y) => {
+                row.forEach((color, x) => {
+                    bufferCtx.fillStyle = color;
+                    bufferCtx.fillRect(x, y, 1, 1);
+                });
+            });
+            centerView();
+        }
+
+        function requestHistory() {
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'history' }));
+            }
+        }
+
+        function handleHistoryResponse(msg) {
+            state.timeline.segments = msg.segments;
+            updateTimeline();
+            ui.statSegments.textContent = `Segments: ${msg.stats.segments}`;
+            ui.statChanges.textContent = `Changes: ${msg.stats.totalChanges}`;
+        }
+
+        function updateTimeline() {
+            const segments = state.timeline.segments;
+            if (segments.length === 0) return;
+
+            state.timeline.minTimestamp = segments[0].timestamp;
+            
+            // Get max timestamp from last segment's last change or segment timestamp
+            const lastSegment = segments[segments.length - 1];
+            if (lastSegment.changes.length > 0) {
+                state.timeline.maxTimestamp = lastSegment.changes[lastSegment.changes.length - 1].timestamp;
+            } else {
+                state.timeline.maxTimestamp = lastSegment.timestamp;
+            }
+
+            ui.startTime.textContent = formatTimestamp(state.timeline.minTimestamp);
+            ui.endTime.textContent = formatTimestamp(state.timeline.maxTimestamp);
+
+            ui.slider.min = state.timeline.minTimestamp;
+            ui.slider.max = state.timeline.maxTimestamp;
+            ui.slider.value = state.timeline.maxTimestamp;
+            ui.slider.disabled = false;
+
+            renderAtTimestamp(state.timeline.maxTimestamp);
+        }
+
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString();
+        }
+
+        function renderAtTimestamp(timestamp) {
+            const segments = state.timeline.segments;
+            
+            // Find the latest segment at or before the timestamp
+            let segmentIndex = segments.length - 1;
+            for (let i = 0; i < segments.length; i++) {
+                if (segments[i].timestamp > timestamp) {
+                    segmentIndex = Math.max(0, i - 1);
+                    break;
+                }
+            }
+
+            const segment = segments[segmentIndex];
+            const board = segment.snapshot.map(row => [...row]);
+
+            // Replay changes from this segment up to the timestamp
+            for (const change of segment.changes) {
+                if (change.timestamp <= timestamp) {
+                    board[change.y][change.x] = change.color;
+                } else {
+                    break;
+                }
+            }
+
+            // If timestamp is after this segment, replay from next segments
+            for (let i = segmentIndex + 1; i < segments.length; i++) {
+                const nextSegment = segments[i];
+                if (nextSegment.timestamp > timestamp) {
+                    break;
+                }
+                for (const change of nextSegment.changes) {
+                    if (change.timestamp <= timestamp) {
+                        board[change.y][change.x] = change.color;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            drawBoardToBuffer(board);
+            ui.statCurrent.textContent = formatTimestamp(timestamp);
+        }
+
+        function drawBoardToBuffer(board) {
+            board.forEach((row, y) => {
+                row.forEach((color, x) => {
+                    bufferCtx.fillStyle = color;
+                    bufferCtx.fillRect(x, y, 1, 1);
+                });
+            });
+        }
+
+        // --- Input Handling ---
+        function setupInput() {
+            canvas.addEventListener('mousedown', onPointerDown);
+            window.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', onPointerUp);
+            canvas.addEventListener('wheel', onWheel, { passive: false });
+            canvas.addEventListener('touchstart', (e) => {
+                if(e.touches.length === 1) onPointerDown(e.touches[0]);
+            }, { passive: false });
+            window.addEventListener('touchmove', (e) => {
+                if(e.touches.length === 1) onPointerMove(e.touches[0]);
+                e.preventDefault();
+            }, { passive: false });
+            window.addEventListener('touchend', onPointerUp);
+        }
+
+        function onPointerDown(e) {
+            state.drag.isDragging = true;
+            state.drag.startX = e.clientX;
+            state.drag.startY = e.clientY;
+            state.drag.lastX = e.clientX;
+            state.drag.lastY = e.clientY;
+            state.drag.moved = false;
+        }
+
+        function onPointerMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const boardX = Math.floor((mouseX - state.view.x) / state.view.zoom);
+            const boardY = Math.floor((mouseY - state.view.y) / state.view.zoom);
+
+            if (boardX >= 0 && boardX < state.board.width && boardY >= 0 && boardY < state.board.height) {
+                state.hover.x = boardX;
+                state.hover.y = boardY;
+                ui.coords.innerText = `${boardX}, ${boardY}`;
+                canvas.style.cursor = 'default';
+            } else {
+                state.hover.x = -1;
+                state.hover.y = -1;
+                ui.coords.innerText = `- , -`;
+                canvas.style.cursor = 'default';
+            }
+
+            if (!state.drag.isDragging) return;
+            const dx = e.clientX - state.drag.lastX;
+            const dy = e.clientY - state.drag.lastY;
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.drag.moved = true;
+            state.view.x += dx;
+            state.view.y += dy;
+            state.drag.lastX = e.clientX;
+            state.drag.lastY = e.clientY;
+        }
+
+        function onPointerUp(e) {
+            if (!state.drag.isDragging) return;
+            state.drag.isDragging = false;
+        }
+
+        function onWheel(e) {
+            e.preventDefault();
+            const zoomIntensity = 0.05;
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            const worldX = (mouseX - state.view.x) / state.view.zoom;
+            const worldY = (mouseY - state.view.y) / state.view.zoom;
+            const delta = e.deltaY < 0 ? 1 + zoomIntensity : 1 / (1 + zoomIntensity);
+            let newZoom = state.view.zoom * delta;
+            newZoom = Math.max(state.view.minZoom, Math.min(newZoom, state.view.maxZoom));
+            state.view.x = mouseX - worldX * newZoom;
+            state.view.y = mouseY - worldY * newZoom;
+            state.view.zoom = newZoom;
+        }
+
+        function render() {
+            ctx.fillStyle = '#18181b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = false;
+            ctx.setTransform(state.view.zoom, 0, 0, state.view.zoom, state.view.x, state.view.y);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, state.board.width, state.board.height);
+            ctx.drawImage(bufferCanvas, 0, 0);
+
+            if (state.showGrid && state.view.zoom > 4) {
+                ctx.lineWidth = 1 / state.view.zoom;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.beginPath();
+                for (let x = 0; x <= state.board.width; x++) {
+                    ctx.moveTo(x, 0); ctx.lineTo(x, state.board.height);
+                }
+                for (let y = 0; y <= state.board.height; y++) {
+                    ctx.moveTo(0, y); ctx.lineTo(state.board.width, y);
+                }
+                ctx.stroke();
+            }
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            requestAnimationFrame(render);
+        }
+
+        init();
+    </script>
+</body>
+</html>

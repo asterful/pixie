@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixie Place</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            touch-action: none;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-white select-none font-sans">
+
+    <!-- Main Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Top UI: Stats & Tools -->
+    <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
+        <!-- Left side: Stats & Timeline -->
+        <div class="flex flex-col gap-2 pointer-events-auto">
+            <!-- Stats Badge -->
+            <div class="bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-lg border border-gray-700 shadow-lg flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="relative flex h-3 w-3">
+                        <span id="ping-indicator-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span id="ping-indicator-dot" class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                    </span>
+                    <span class="text-sm font-medium text-gray-300">
+                        <span id="client-count">0</span> Online
+                    </span>
+                </div>
+                <div class="h-4 w-px bg-gray-700"></div>
+                <div class="text-xs text-gray-500 font-mono" id="coords">0, 0</div>
+            </div>
+            
+            <!-- Timeline Button -->
+            <button id="btn-timeline" class="bg-gray-900/90 backdrop-blur-md px-3 py-2 rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300 text-sm font-medium flex items-center gap-2 w-fit" title="View Timeline">
+                <i data-lucide="history" class="w-4 h-4"></i>
+                Timeline
+            </button>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-col gap-2 pointer-events-auto">
+            <button id="btn-download" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Download Canvas">
+                <i data-lucide="download" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-grid" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-blue-400" title="Toggle Grid">
+                <i data-lucide="grid" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-center" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Reset View">
+                <i data-lucide="focus" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom UI: Unified Toolbar -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pointer-events-none">
+        <!-- Removed overflow-hidden from toolbar to allow popups/hovers to extend -->
+        <div class="bg-gray-900/90 backdrop-blur-md p-2 rounded-xl border border-gray-700 shadow-2xl pointer-events-auto flex gap-2 items-center w-fit mx-auto max-w-full">
+            
+            <!-- Eyedropper Tool -->
+            <button id="btn-eyedropper" class="p-2.5 rounded-lg border border-gray-700 hover:bg-gray-800 text-gray-400 transition-colors shrink-0" title="Eyedropper Tool">
+                <i data-lucide="pipette" class="w-5 h-5"></i>
+            </button>
+
+            <div class="w-px h-8 bg-gray-700 shrink-0 mx-1"></div>
+            
+            <!-- Custom Color Wheel Button & Picker Wrapper -->
+            <div class="relative shrink-0">
+                <!-- Toggle Button -->
+                <button id="btn-color-wheel" class="relative group cursor-pointer block focus:outline-none transition-transform active:scale-95" title="Toggle Color Wheel">
+                    <div class="w-10 h-10 rounded-lg border-2 border-white/20 shadow-inner" id="current-color-display" style="background-color: #FF5733;"></div>
+                    <div class="absolute bottom-0 right-0 pointer-events-none bg-gray-900/80 rounded-tl-md p-0.5">
+                         <i data-lucide="palette" class="w-3 h-3 text-white/70"></i>
+                    </div>
+                </button>
+
+                <!-- Custom Color Picker Popup (Positioned relative to button) -->
+                <div id="custom-picker" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 bg-gray-900/95 backdrop-blur-xl p-3 rounded-xl border border-gray-700 shadow-2xl hidden flex-col gap-4 w-64 z-50">
+                    <!-- Saturation/Value Box -->
+                    <div id="cp-sv" class="w-full h-40 rounded-lg relative cursor-crosshair overflow-hidden touch-none" style="background-color: red;">
+                        <div class="absolute inset-0 bg-gradient-to-r from-white to-transparent"></div>
+                        <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent"></div>
+                        <div id="cp-sv-thumb" class="absolute w-4 h-4 border-2 border-white rounded-full -translate-x-2 -translate-y-2 shadow-md pointer-events-none" style="top: 0; left: 100%;"></div>
+                    </div>
+                    <!-- Hue Slider -->
+                    <div id="cp-hue" class="w-full h-6 rounded-lg relative cursor-pointer touch-none" style="background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);">
+                        <div id="cp-hue-thumb" class="absolute w-2 h-full bg-white border border-gray-400 rounded-sm shadow-sm -translate-x-1 pointer-events-none" style="left: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="w-px h-8 bg-gray-700 shrink-0 mx-1"></div>
+
+            <!-- Palette Swatches (Added py-2 to prevent hover clip) -->
+            <div class="flex flex-1 gap-2 overflow-x-auto hide-scrollbar items-center px-1 py-2" id="palette-container"></div>
+        </div>
+    </div>
+
+    <!-- Connection Status Overlay -->
+    <div id="connection-overlay" class="absolute inset-0 bg-black/80 flex items-center justify-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div class="text-center">
+            <div class="mb-4 flex justify-center">
+                <i data-lucide="loader-2" class="w-10 h-10 text-white animate-spin"></i>
+            </div>
+            <h2 class="text-xl font-bold text-white">Connecting to Canvas...</h2>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const WS_URL = 'wss://pixie-production-677d.up.railway.app';
+        const DEFAULT_PALETTE = [
+            '#FFFFFF', '#E4E4E4', '#888888', '#222222', '#000000',
+            '#FFA7D1', '#E50000', '#E59500', '#A06A42', '#E5D900', 
+            '#94E044', '#02BE01', '#00D3DD', '#0083C7', '#0000EA', 
+            '#CF6EE4', '#820080'
+        ];
+
+        // --- State ---
+        const state = {
+            ws: null,
+            isConnected: false,
+            board: { width: 128, height: 128 },
+            view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
+            drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
+            color: '#FF5733',
+            showGrid: true,
+            isEyedropper: false,
+            isPickerOpen: false,
+            hover: { x: -1, y: -1 },
+            picker: { h: 0, s: 1, v: 1 }
+        };
+
+        // --- DOM Elements ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const bufferCanvas = document.createElement('canvas');
+        const bufferCtx = bufferCanvas.getContext('2d');
+
+        const ui = {
+            clientCount: document.getElementById('client-count'),
+            coords: document.getElementById('coords'),
+            pingDot: document.getElementById('ping-indicator-dot'),
+            overlay: document.getElementById('connection-overlay'),
+            palette: document.getElementById('palette-container'),
+            currentDisplay: document.getElementById('current-color-display'),
+            btnGrid: document.getElementById('btn-grid'),
+            btnEyedropper: document.getElementById('btn-eyedropper'),
+            btnCenter: document.getElementById('btn-center'),
+            btnDownload: document.getElementById('btn-download'),
+            btnColorWheel: document.getElementById('btn-color-wheel'),
+            btnTimeline: document.getElementById('btn-timeline'),
+            
+            // Picker
+            pickerEl: document.getElementById('custom-picker'),
+            svBox: document.getElementById('cp-sv'),
+            svThumb: document.getElementById('cp-sv-thumb'),
+            hueBox: document.getElementById('cp-hue'),
+            hueThumb: document.getElementById('cp-hue-thumb')
+        };
+
+        // --- Initialization ---
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            setupInput();
+            renderPalette();
+            setupColorPicker();
+            connectWebSocket();
+            
+            // Initialize picker state
+            selectColor(state.color);
+            
+            requestAnimationFrame(render);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render(); 
+        }
+
+        // --- Color Logic ---
+        function hsvToHex(h, s, v) {
+            let r, g, b, i, f, p, q, t;
+            i = Math.floor(h * 6);
+            f = h * 6 - i;
+            p = v * (1 - s);
+            q = v * (1 - f * s);
+            t = v * (1 - (1 - f) * s);
+            switch (i % 6) {
+                case 0: r = v, g = t, b = p; break;
+                case 1: r = q, g = v, b = p; break;
+                case 2: r = p, g = v, b = t; break;
+                case 3: r = p, g = q, b = v; break;
+                case 4: r = t, g = p, b = v; break;
+                case 5: r = v, g = p, b = q; break;
+            }
+            const toHex = x => {
+                const hex = Math.round(x * 255).toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            };
+            return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+        }
+
+        function hexToHsv(hex) {
+            let r = parseInt(hex.substring(1, 3), 16) / 255;
+            let g = parseInt(hex.substring(3, 5), 16) / 255;
+            let b = parseInt(hex.substring(5, 7), 16) / 255;
+            let max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, v = max;
+            let d = max - min;
+            s = max === 0 ? 0 : d / max;
+            if (max === min) h = 0;
+            else {
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return { h, s, v };
+        }
+
+        function selectColor(color, fromPicker = false) {
+            state.color = color;
+            ui.currentDisplay.style.backgroundColor = color;
+            
+            if (!fromPicker) {
+                // Sync picker state to this color
+                const hsv = hexToHsv(color);
+                state.picker = hsv;
+                updatePickerUI();
+            }
+
+            if (state.isEyedropper) toggleEyedropper();
+        }
+
+        // --- Custom Color Picker ---
+        function setupColorPicker() {
+            // Toggle visibility
+            ui.btnColorWheel.onclick = (e) => {
+                e.stopPropagation();
+                state.isPickerOpen = !state.isPickerOpen;
+                ui.pickerEl.classList.toggle('hidden', !state.isPickerOpen);
+                ui.pickerEl.classList.toggle('flex', state.isPickerOpen);
+            };
+
+            // Close on outside click
+            window.addEventListener('mousedown', (e) => {
+                if (state.isPickerOpen && !ui.pickerEl.contains(e.target) && !ui.btnColorWheel.contains(e.target)) {
+                    state.isPickerOpen = false;
+                    ui.pickerEl.classList.add('hidden');
+                    ui.pickerEl.classList.remove('flex');
+                }
+            });
+
+            // Prevent drawing when clicking on picker
+            ui.pickerEl.addEventListener('mousedown', e => e.stopPropagation());
+            ui.pickerEl.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
+
+            // Interaction logic
+            const handleHue = (clientX) => {
+                const rect = ui.hueBox.getBoundingClientRect();
+                let x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                state.picker.h = x;
+                updatePickerUI();
+                updateColorFromPicker();
+            };
+
+            const handleSV = (clientX, clientY) => {
+                const rect = ui.svBox.getBoundingClientRect();
+                let x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                let y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+                state.picker.s = x;
+                state.picker.v = 1 - y;
+                updatePickerUI();
+                updateColorFromPicker();
+            };
+
+            // Mouse Events
+            let draggingHue = false;
+            let draggingSV = false;
+
+            ui.hueBox.addEventListener('mousedown', e => { draggingHue = true; handleHue(e.clientX); });
+            ui.svBox.addEventListener('mousedown', e => { draggingSV = true; handleSV(e.clientX, e.clientY); });
+            
+            window.addEventListener('mousemove', e => {
+                if (draggingHue) handleHue(e.clientX);
+                if (draggingSV) handleSV(e.clientX, e.clientY);
+            });
+            
+            window.addEventListener('mouseup', () => { draggingHue = false; draggingSV = false; });
+
+            // Touch Events
+            ui.hueBox.addEventListener('touchstart', e => { draggingHue = true; handleHue(e.touches[0].clientX); e.preventDefault(); }, {passive: false});
+            ui.svBox.addEventListener('touchstart', e => { draggingSV = true; handleSV(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive: false});
+            
+            window.addEventListener('touchmove', e => {
+                if (draggingHue) handleHue(e.touches[0].clientX);
+                if (draggingSV) handleSV(e.touches[0].clientX, e.touches[0].clientY);
+            }, {passive: false});
+            
+            window.addEventListener('touchend', () => { draggingHue = false; draggingSV = false; });
+        }
+
+        function updatePickerUI() {
+            // Update Hue Thumb
+            ui.hueThumb.style.left = `${state.picker.h * 100}%`;
+            
+            // Update SV Box Background (Hue)
+            const hueColor = hsvToHex(state.picker.h, 1, 1);
+            ui.svBox.style.backgroundColor = hueColor;
+            
+            // Update SV Thumb
+            ui.svThumb.style.left = `${state.picker.s * 100}%`;
+            ui.svThumb.style.top = `${(1 - state.picker.v) * 100}%`;
+            ui.svThumb.style.backgroundColor = hsvToHex(state.picker.h, state.picker.s, state.picker.v);
+        }
+
+        function updateColorFromPicker() {
+            const hex = hsvToHex(state.picker.h, state.picker.s, state.picker.v);
+            selectColor(hex, true);
+        }
+
+        // --- Palette & UI ---
+        function renderPalette() {
+            ui.palette.innerHTML = '';
+            DEFAULT_PALETTE.forEach(color => {
+                const btn = document.createElement('button');
+                btn.className = 'w-8 h-8 rounded-md border border-white/10 shrink-0 transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white/50 relative group';
+                btn.style.backgroundColor = color;
+                btn.title = color;
+                btn.onclick = () => selectColor(color);
+                ui.palette.appendChild(btn);
+            });
+
+            ui.btnGrid.onclick = () => {
+                state.showGrid = !state.showGrid;
+                ui.btnGrid.classList.toggle('text-blue-400', state.showGrid);
+                ui.btnGrid.classList.toggle('text-gray-400', !state.showGrid);
+            };
+
+            ui.btnEyedropper.onclick = toggleEyedropper;
+            ui.btnCenter.onclick = centerView;
+            ui.btnDownload.onclick = downloadCanvas;
+            ui.btnTimeline.onclick = () => window.location.href = '/pages/timeline';
+        }
+
+        function toggleEyedropper() {
+            state.isEyedropper = !state.isEyedropper;
+            ui.btnEyedropper.classList.toggle('text-blue-400', state.isEyedropper);
+            ui.btnEyedropper.classList.toggle('bg-blue-900/30', state.isEyedropper);
+            ui.btnEyedropper.classList.toggle('border-blue-500/50', state.isEyedropper);
+        }
+
+        function downloadCanvas() {
+            const downloadCanvas = document.createElement('canvas');
+            downloadCanvas.width = state.board.width;
+            downloadCanvas.height = state.board.height;
+            const downloadCtx = downloadCanvas.getContext('2d');
+            downloadCtx.drawImage(bufferCanvas, 0, 0);
+            
+            downloadCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pixie-place-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        function centerView() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            state.view.zoom = Math.min(canvas.width, canvas.height) / Math.max(state.board.width, state.board.height) * 0.9;
+            if(state.view.zoom < 1) state.view.zoom = 2;
+            state.view.x = centerX - (state.board.width * state.view.zoom) / 2;
+            state.view.y = centerY - (state.board.height * state.view.zoom) / 2;
+        }
+
+        // --- WebSocket Logic ---
+        function connectWebSocket() {
+            ui.overlay.style.opacity = '1';
+            ui.overlay.style.pointerEvents = 'auto';
+
+            state.ws = new WebSocket(WS_URL);
+
+            state.ws.onopen = () => {
+                console.log('Connected');
+                state.isConnected = true;
+                ui.overlay.style.opacity = '0';
+                ui.overlay.style.pointerEvents = 'none';
+                ui.pingDot.className = "relative inline-flex rounded-full h-3 w-3 bg-green-500";
+                
+                setInterval(() => {
+                    if (state.ws.readyState === WebSocket.OPEN) {
+                        state.ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 5000);
+            };
+
+            state.ws.onclose = () => {
+                console.log('Disconnected');
+                state.isConnected = false;
+                ui.pingDot.className = "relative inline-flex rounded-full h-3 w-3 bg-red-500";
+                ui.overlay.style.opacity = '1';
+                ui.overlay.style.pointerEvents = 'auto';
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            state.ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'init': initBoard(msg); break;
+                case 'update': updatePixel(msg.x, msg.y, msg.color); break;
+                case 'pong': ui.clientCount.innerText = msg.clients; break;
+            }
+        }
+
+        function initBoard(msg) {
+            state.board.width = msg.width;
+            state.board.height = msg.height;
+            bufferCanvas.width = msg.width;
+            bufferCanvas.height = msg.height;
+            msg.board.forEach((row, y) => {
+                row.forEach((color, x) => {
+                    bufferCtx.fillStyle = color;
+                    bufferCtx.fillRect(x, y, 1, 1);
+                });
+            });
+            centerView();
+        }
+
+        function updatePixel(x, y, color) {
+            bufferCtx.fillStyle = color;
+            bufferCtx.fillRect(x, y, 1, 1);
+        }
+
+        function sendPaint(x, y) {
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+            state.ws.send(JSON.stringify({
+                type: 'paint', x: x, y: y, color: state.color
+            }));
+        }
+
+        // --- Input Handling ---
+        function setupInput() {
+            canvas.addEventListener('mousedown', onPointerDown);
+            window.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', onPointerUp);
+            canvas.addEventListener('wheel', onWheel, { passive: false });
+            canvas.addEventListener('touchstart', (e) => {
+                if(e.touches.length === 1) onPointerDown(e.touches[0]);
+            }, { passive: false });
+            window.addEventListener('touchmove', (e) => {
+                if(e.touches.length === 1) onPointerMove(e.touches[0]);
+                e.preventDefault();
+            }, { passive: false });
+            window.addEventListener('touchend', onPointerUp);
+        }
+
+        function onPointerDown(e) {
+            state.drag.isDragging = true;
+            state.drag.startX = e.clientX;
+            state.drag.startY = e.clientY;
+            state.drag.lastX = e.clientX;
+            state.drag.lastY = e.clientY;
+            state.drag.moved = false;
+        }
+
+        function onPointerMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const boardX = Math.floor((mouseX - state.view.x) / state.view.zoom);
+            const boardY = Math.floor((mouseY - state.view.y) / state.view.zoom);
+
+            if (boardX >= 0 && boardX < state.board.width && boardY >= 0 && boardY < state.board.height) {
+                state.hover.x = boardX;
+                state.hover.y = boardY;
+                ui.coords.innerText = `${boardX}, ${boardY}`;
+                canvas.style.cursor = state.isEyedropper ? 'cell' : 'crosshair';
+            } else {
+                state.hover.x = -1;
+                state.hover.y = -1;
+                ui.coords.innerText = `- , -`;
+                canvas.style.cursor = 'default';
+            }
+
+            if (!state.drag.isDragging) return;
+            const dx = e.clientX - state.drag.lastX;
+            const dy = e.clientY - state.drag.lastY;
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.drag.moved = true;
+            state.view.x += dx;
+            state.view.y += dy;
+            state.drag.lastX = e.clientX;
+            state.drag.lastY = e.clientY;
+        }
+
+        function onPointerUp(e) {
+            if (!state.drag.isDragging) return;
+            state.drag.isDragging = false;
+            if (!state.drag.moved && state.hover.x !== -1) {
+                if (state.isEyedropper) {
+                    pickColorFromBoard(state.hover.x, state.hover.y);
+                } else {
+                    sendPaint(state.hover.x, state.hover.y);
+                }
+            }
+        }
+
+        function pickColorFromBoard(x, y) {
+            const p = bufferCtx.getImageData(x, y, 1, 1).data;
+            const hex = "#" + ("0" + p[0].toString(16)).slice(-2) + ("0" + p[1].toString(16)).slice(-2) + ("0" + p[2].toString(16)).slice(-2);
+            selectColor(hex.toUpperCase());
+        }
+
+        function onWheel(e) {
+            e.preventDefault();
+            const zoomIntensity = 0.05;
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            const worldX = (mouseX - state.view.x) / state.view.zoom;
+            const worldY = (mouseY - state.view.y) / state.view.zoom;
+            const delta = e.deltaY < 0 ? 1 + zoomIntensity : 1 / (1 + zoomIntensity);
+            let newZoom = state.view.zoom * delta;
+            newZoom = Math.max(state.view.minZoom, Math.min(newZoom, state.view.maxZoom));
+            state.view.x = mouseX - worldX * newZoom;
+            state.view.y = mouseY - worldY * newZoom;
+            state.view.zoom = newZoom;
+        }
+
+        function render() {
+            ctx.fillStyle = '#18181b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = false;
+            ctx.setTransform(state.view.zoom, 0, 0, state.view.zoom, state.view.x, state.view.y);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, state.board.width, state.board.height);
+            ctx.drawImage(bufferCanvas, 0, 0);
+
+            if (state.showGrid && state.view.zoom > 4) {
+                ctx.lineWidth = 1 / state.view.zoom;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.beginPath();
+                for (let x = 0; x <= state.board.width; x++) {
+                    ctx.moveTo(x, 0); ctx.lineTo(x, state.board.height);
+                }
+                for (let y = 0; y <= state.board.height; y++) {
+                    ctx.moveTo(0, y); ctx.lineTo(state.board.width, y);
+                }
+                ctx.stroke();
+            }
+
+            if (state.hover.x !== -1) {
+                if (state.isEyedropper) {
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2 / state.view.zoom;
+                    ctx.shadowColor = 'black';
+                    ctx.shadowBlur = 5;
+                    ctx.strokeRect(state.hover.x, state.hover.y, 1, 1);
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.fillStyle = state.color;
+                    ctx.globalAlpha = 0.5;
+                    ctx.fillRect(state.hover.x, state.hover.y, 1, 1);
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2 / state.view.zoom;
+                    ctx.globalAlpha = 1.0;
+                    ctx.strokeRect(state.hover.x, state.hover.y, 1, 1);
+                }
+            }
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            requestAnimationFrame(render);
+        }
+
+        init();
+    </script>
+</body>
+</html>
