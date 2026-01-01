@@ -5,7 +5,7 @@ module.exports = {
   DEFAULT_COLOR: '#FFFFFF',
   
   // Storage configuration
-  SESSION_NAME: 'happy-2026',
+  SESSION_NAME: '1-1-2026',
   STORAGE_PATH: '/data',
   AUTOSAVE_INTERVAL_MS: 2 * 60 * 1000, // 2 minutes
   PAINT_COOLDOWN_MS: 200, // Rate limit for paint commands

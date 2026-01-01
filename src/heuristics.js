@@ -4,7 +4,7 @@
 
 // Configuration
 const MIN_REQUESTS_FOR_CHECK = 10;  // Need enough data to detect patterns
-const VARIANCE_THRESHOLD_MS = 30;  // Standard deviation below this = suspicious
+const VARIANCE_THRESHOLD_MS = 50;  // Standard deviation below this = suspicious
 
 /**
  * Calculate standard deviation of intervals between timestamps
