@@ -36,7 +36,8 @@ Sent immediately upon connection establishment.
     ["#FFFFFF", "#FFFFFF", ...],
     ["#FFFFFF", "#FFFFFF", ...],
     ...
-  ]
+  ],
+  "cooldown": 700
 }
 ```
 
@@ -47,6 +48,7 @@ Sent immediately upon connection establishment.
 | `width` | integer | Board width in pixels |
 | `height` | integer | Board height in pixels |
 | `board` | array | 2D array `[height][width]` of hex color strings |
+| `cooldown` | integer | Minimum milliseconds between paint requests per client |
 
 **Notes:**
 - Board array is indexed as `board[y][x]` (row, then column)
@@ -81,6 +83,11 @@ Request to paint a pixel on the board.
 - Color must match regex: `^#[0-9A-Fa-f]{6}$`
 - Coordinates must be integers within board bounds
 - Invalid messages are silently dropped (no error response)
+
+**Rate Limiting:**
+- Clients must wait at least `cooldown` ms between paint requests
+- Requests sent too quickly will be rejected with a `rate_limit` message
+- The cooldown value is provided in the `init` message (typically 700ms)
 
 **Valid Examples:**
 ```json
@@ -282,6 +289,34 @@ Response containing all historical segments with snapshots and changes.
 
 ---
 
+### 8. Rate Limit Response (Server → Client)
+
+Sent when a client attempts to paint too quickly.
+
+**Message:**
+```json
+{
+  "type": "rate_limit",
+  "message": "Please wait before placing another pixel",
+  "waitTime": 450
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `"rate_limit"` |
+| `message` | string | Human-readable error message |
+| `waitTime` | integer | Milliseconds until next paint request is allowed |
+
+**Notes:**
+- Only sent when client violates rate limit
+- The paint request is rejected and not processed
+- Client should wait at least `waitTime` ms before retrying
+- Recommended: disable paint UI during cooldown
+
+---
+
 ## Error Handling
 
 **Server behavior:**
@@ -326,7 +361,7 @@ Response containing all historical segments with snapshots and changes.
 
 - No authentication
 - No authorization  
-- No rate limiting
+- Rate limiting: 700ms cooldown per client
 - Use `wss://` in production
 
 ## Testing

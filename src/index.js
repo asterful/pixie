@@ -1,11 +1,12 @@
 const WebSocket = require('ws');
 const { parseMessage, validatePaintMessage } = require('./utils');
-const { PORT, MESSAGE_TYPES, SESSION_NAME } = require('./constants');
+const { PORT, MESSAGE_TYPES, SESSION_NAME, PAINT_COOLDOWN_MS } = require('./constants');
 const { initializeBoard, startAutosave, saveHistory } = require('./storage');
 
 // Global state
 let board;
 const clients = new Set();
+const clientLastPaint = new WeakMap(); // Track last paint time per client
 
 // ============================================================================
 // WebSocket Message Handlers
@@ -31,7 +32,8 @@ function sendInitialState(ws) {
     type: MESSAGE_TYPES.INIT,
     width: board.width,
     height: board.height,
-    board: board.getState()
+    board: board.getState(),
+    cooldown: PAINT_COOLDOWN_MS
   });
 }
 
@@ -42,12 +44,30 @@ function handlePing(ws) {
   });
 }
 
-function handlePaint(message) {
+function handlePaint(ws, message) {
   const validation = validatePaintMessage(message);
   if (!validation.valid) return;
 
+  // Rate limiting check
+  const now = Date.now();
+  const lastPaint = clientLastPaint.get(ws) || 0;
+  const timeSinceLastPaint = now - lastPaint;
+
+  if (timeSinceLastPaint < PAINT_COOLDOWN_MS) {
+    const waitTime = PAINT_COOLDOWN_MS - timeSinceLastPaint;
+    sendToClient(ws, {
+      type: MESSAGE_TYPES.RATE_LIMIT,
+      message: 'Please wait before placing another pixel',
+      waitTime
+    });
+    return;
+  }
+
   const { x, y, color } = message;
   const normalizedColor = board.setPixel(x, y, color);
+
+  // Update last paint time for this client
+  clientLastPaint.set(ws, now);
 
   broadcast({
     type: MESSAGE_TYPES.UPDATE,
@@ -85,7 +105,7 @@ wss.on('connection', (ws) => {
         break;
 
       case MESSAGE_TYPES.PAINT:
-        handlePaint(message);
+        handlePaint(ws, message);
         break;
 
       case MESSAGE_TYPES.HISTORY:
@@ -99,6 +119,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     clients.delete(ws);
+    clientLastPaint.delete(ws);
   });
 
   ws.on('error', () => {});

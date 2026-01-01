@@ -8,6 +8,7 @@ module.exports = {
   SESSION_NAME: 'newyears-2025',
   STORAGE_PATH: '/data',
   AUTOSAVE_INTERVAL_MS: 2 * 60 * 1000, // 2 minutes
+  PAINT_COOLDOWN_MS: 700, // Rate limit for paint commands
   
   MESSAGE_TYPES: {
     PING: 'ping',
@@ -16,6 +17,7 @@ module.exports = {
     INIT: 'init',
     UPDATE: 'update',
     HISTORY: 'history',
-    HISTORY_RESPONSE: 'history_response'
+    HISTORY_RESPONSE: 'history_response',
+    RATE_LIMIT: 'rate_limit'
   }
 };
