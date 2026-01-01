@@ -103,13 +103,10 @@
     <script>
         lucide.createIcons();
 
-        const WS_URL = 'wss://pixie-production-677d.up.railway.app';
         const HTTP_URL = 'https://pixie-production-677d.up.railway.app';
 
         // --- State ---
         const state = {
-            ws: null,
-            isConnected: false,
             board: { width: 128, height: 128 },
             view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
             drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
@@ -151,7 +148,7 @@
             window.addEventListener('resize', resizeCanvas);
             setupInput();
             setupUIHandlers();
-            connectWebSocket();
+            loadHistory();
             requestAnimationFrame(render);
         }
 
@@ -170,7 +167,7 @@
 
             ui.btnCenter.onclick = centerView;
             ui.btnDownload.onclick = downloadCanvas;
-            ui.refreshBtn.onclick = requestHistory;
+            ui.refreshBtn.onclick = loadHistory;
             
             ui.slider.addEventListener('input', (e) => {
                 const timestamp = parseInt(e.target.value);
@@ -210,84 +207,53 @@
             state.view.y = centerY - (state.board.height * state.view.zoom) / 2;
         }
 
-        // --- WebSocket Logic ---
-        function connectWebSocket() {
+        // --- HTTP Data Loading ---
+        async function loadHistory() {
             ui.overlay.style.opacity = '1';
             ui.overlay.style.pointerEvents = 'auto';
+            ui.refreshBtn.disabled = true;
 
-            state.ws = new WebSocket(WS_URL);
-
-            state.ws.onopen = () => {
-                console.log('Connected');
-                state.isConnected = true;
-                ui.overlay.style.opacity = '0';
-                ui.overlay.style.pointerEvents = 'none';
-                ui.refreshBtn.disabled = false;
-                requestHistory();
-            };
-
-            state.ws.onclose = () => {
-                console.log('Disconnected');
-                state.isConnected = false;
-                ui.overlay.style.opacity = '1';
-                ui.overlay.style.pointerEvents = 'auto';
-                ui.refreshBtn.disabled = true;
-                ui.slider.disabled = true;
-                setTimeout(connectWebSocket, 3000);
-            };
-
-            state.ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                handleMessage(msg);
-            };
-        }
-
-        function handleMessage(msg) {
-            switch (msg.type) {
-                case 'init': 
-                    initBoard(msg); 
-                    break;
-                case 'update':
-                    // Ignore live updates in timeline view
-                    break;
-            }
-        }
-
-        function initBoard(msg) {
-            state.board.width = msg.width;
-            state.board.height = msg.height;
-            bufferCanvas.width = msg.width;
-            bufferCanvas.height = msg.height;
-            msg.board.forEach((row, y) => {
-                row.forEach((color, x) => {
-                    bufferCtx.fillStyle = color;
-                    bufferCtx.fillRect(x, y, 1, 1);
-                });
-            });
-            centerView();
-        }
-
-        async function requestHistory() {
             try {
-                ui.refreshBtn.disabled = true;
                 const response = await fetch(`${HTTP_URL}/history`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
-                handleHistoryResponse(data);
-            } catch (error) {
-                console.error('Failed to fetch history:', error);
-            } finally {
+                
+                // Initialize board
+                state.board.width = data.width;
+                state.board.height = data.height;
+                bufferCanvas.width = data.width;
+                bufferCanvas.height = data.height;
+                
+                // Draw initial board state
+                data.board.forEach((row, y) => {
+                    row.forEach((color, x) => {
+                        bufferCtx.fillStyle = color;
+                        bufferCtx.fillRect(x, y, 1, 1);
+                    });
+                });
+                
+                centerView();
+                
+                // Load timeline data
+                state.timeline.segments = data.segments;
+                updateTimeline();
+                ui.statSegments.textContent = `Segments: ${data.stats.segments}`;
+                ui.statChanges.textContent = `Changes: ${data.stats.totalChanges}`;
+                
+                ui.overlay.style.opacity = '0';
+                ui.overlay.style.pointerEvents = 'none';
                 ui.refreshBtn.disabled = false;
+                
+                console.log('History loaded successfully');
+            } catch (error) {
+                console.error('Failed to load history:', error);
+                ui.overlay.style.opacity = '0';
+                ui.overlay.style.pointerEvents = 'none';
+                ui.refreshBtn.disabled = false;
+                alert('Failed to load timeline data. Please try refreshing.');
             }
-        }
-
-        function handleHistoryResponse(data) {
-            state.timeline.segments = data.segments;
-            updateTimeline();
-            ui.statSegments.textContent = `Segments: ${data.stats.segments}`;
-            ui.statChanges.textContent = `Changes: ${data.stats.totalChanges}`;
         }
 
         function updateTimeline() {

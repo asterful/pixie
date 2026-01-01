@@ -124,6 +124,9 @@ function startServer() {
     if (req.method === 'GET' && req.url === '/history') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
+        width: board.width,
+        height: board.height,
+        board: board.getState(),
         segments: board.segments,
         stats: board.getHistoryStats()
       }));

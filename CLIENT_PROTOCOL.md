@@ -269,6 +269,13 @@ Retrieve the complete history of all board changes.
 **Response:**
 ```json
 {
+  "width": 128,
+  "height": 128,
+  "board": [
+    ["#FFFFFF", "#FFFFFF", ...],
+    ["#FFFFFF", "#FFFFFF", ...],
+    ...
+  ],
   "segments": [
     {
       "index": 0,
@@ -300,6 +307,9 @@ Retrieve the complete history of all board changes.
 **Response Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
+| `width` | integer | Board width in pixels |
+| `height` | integer | Board height in pixels |
+| `board` | array | Current 2D board state `[height][width]` of hex color strings |
 | `segments` | array | Array of history segments (see below) |
 | `stats` | object | Statistics about the history |
 
