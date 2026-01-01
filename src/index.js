@@ -6,6 +6,7 @@ const { checkBotBehavior } = require('./heuristics');
 
 // Global state
 let board;
+let wss; // Defined globally, initialized later
 const clients = new Set();
 const clientLastPaint = new WeakMap(); // Track last paint time per client
 const clientRequestHistory = new WeakMap(); // Track last 20 requests per client
@@ -30,6 +31,7 @@ function sendToClient(client, message) {
 }
 
 function sendInitialState(ws) {
+  // This is now safe because we don't accept connections until board is defined
   sendToClient(ws, {
     type: MESSAGE_TYPES.INIT,
     width: board.width,
@@ -109,42 +111,47 @@ function handleHistory(ws) {
 // WebSocket Server Setup
 // ============================================================================
 
-const wss = new WebSocket.Server({ port: PORT });
+// logic moved into a function so we can control WHEN it starts
+function startServer() {
+  const server = new WebSocket.Server({ port: PORT });
 
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  sendInitialState(ws);
+  server.on('connection', (ws) => {
+    clients.add(ws);
+    sendInitialState(ws);
 
-  ws.on('message', (raw) => {
-    const message = parseMessage(raw);
-    if (!message) return;
+    ws.on('message', (raw) => {
+      const message = parseMessage(raw);
+      if (!message) return;
 
-    switch (message.type) {
-      case MESSAGE_TYPES.PING:
-        handlePing(ws);
-        break;
+      switch (message.type) {
+        case MESSAGE_TYPES.PING:
+          handlePing(ws);
+          break;
 
-      case MESSAGE_TYPES.PAINT:
-        handlePaint(ws, message);
-        break;
+        case MESSAGE_TYPES.PAINT:
+          handlePaint(ws, message);
+          break;
 
-      case MESSAGE_TYPES.HISTORY:
-        handleHistory(ws);
-        break;
+        case MESSAGE_TYPES.HISTORY:
+          handleHistory(ws);
+          break;
 
-      default:
-        break;
-    }
+        default:
+          break;
+      }
+    });
+
+    ws.on('close', () => {
+      clients.delete(ws);
+      clientLastPaint.delete(ws);
+      clientRequestHistory.delete(ws);
+    });
+
+    ws.on('error', () => {});
   });
 
-  ws.on('close', () => {
-    clients.delete(ws);
-    clientLastPaint.delete(ws);
-    clientRequestHistory.delete(ws);
-  });
-
-  ws.on('error', () => {});
-});
+  return server;
+}
 
 // ============================================================================
 // Server Lifecycle
@@ -152,21 +159,33 @@ wss.on('connection', (ws) => {
 
 async function shutdown() {
   console.log('[Shutdown] Saving final state...');
-  await saveHistory(board.segments, board.totalChanges);
+  if (board) {
+      await saveHistory(board.segments, board.totalChanges);
+  }
   process.exit(0);
 }
 
 async function start() {
-  board = await initializeBoard();
-  startAutosave(board);
-  console.log(`Place WebSocket Server\nSession: ${SESSION_NAME}\nPort: ${PORT} | Board: ${board.width}x${board.height}`);
+  try {
+    console.log('Loading board data...');
+    // 1. Initialize Board FIRST (Waits here until done)
+    board = await initializeBoard();
+    
+    // 2. Start Autosave
+    startAutosave(board);
+
+    // 3. Start Server SECOND (Only runs after board is ready)
+    wss = startServer();
+    
+    console.log(`Place WebSocket Server\nSession: ${SESSION_NAME}\nPort: ${PORT} | Board: ${board.width}x${board.height}`);
+  } catch (err) {
+    console.error('[Error] Failed during startup:', err);
+    process.exit(1);
+  }
 }
 
 // Start server
-start().catch(err => {
-  console.error('[Error] Failed to start server:', err);
-  process.exit(1);
-});
+start();
 
 // Graceful shutdown
 process.on('SIGTERM', shutdown);
