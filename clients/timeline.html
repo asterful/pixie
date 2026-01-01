@@ -77,9 +77,51 @@
       font-size: 12px;
       color: #888;
     }
+    .env-toggle {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 15px;
+      background: #2a2a2a;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 50px;
+      height: 24px;
+      background: #4a4a4a;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .toggle-switch.prod {
+      background: #2d5016;
+    }
+    .toggle-slider {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+    .toggle-switch.prod .toggle-slider {
+      transform: translateX(26px);
+    }
   </style>
 </head>
 <body>
+  <div class="env-toggle">
+    <span>Local</span>
+    <div class="toggle-switch" id="envToggle" onclick="toggleEnvironment()">
+      <div class="toggle-slider"></div>
+    </div>
+    <span>Production</span>
+  </div>
+
   <div id="status" class="disconnected">
     <span id="status-text">Disconnected</span>
     <span id="info"></span>
@@ -119,7 +161,14 @@
     const statSegments = document.getElementById('stat-segments');
     const statChanges = document.getElementById('stat-changes');
     const statCurrent = document.getElementById('stat-current');
+    const envToggle = document.getElementById('envToggle');
 
+    const WS_URLS = {
+      local: 'ws://localhost:3000',
+      production: 'wss://pixie-production-677d.up.railway.app'
+    };
+
+    let currentEnv = 'local';
     let ws = null;
     let width = 256;
     let height = 256;
@@ -127,19 +176,31 @@
     let minTimestamp = 0;
     let maxTimestamp = 0;
 
+    function toggleEnvironment() {
+      currentEnv = currentEnv === 'local' ? 'production' : 'local';
+      envToggle.classList.toggle('prod');
+      
+      // Reconnect with new URL
+      if (ws) {
+        ws.close();
+      }
+      connect();
+    }
+
     function connect() {
-      ws = new WebSocket('wss://pixie-production-677d.up.railway.app');
+      const wsUrl = WS_URLS[currentEnv];
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         statusEl.className = 'connected';
-        statusText.textContent = 'Connected';
+        statusText.textContent = `Connected (${currentEnv})`;
         refreshBtn.disabled = false;
         requestHistory();
       };
 
       ws.onclose = () => {
         statusEl.className = 'disconnected';
-        statusText.textContent = 'Disconnected';
+        statusText.textContent = `Disconnected (${currentEnv})`;
         refreshBtn.disabled = true;
         slider.disabled = true;
         setTimeout(connect, 2000);

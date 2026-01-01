@@ -37,7 +37,7 @@ Sent immediately upon connection establishment.
     ["#FFFFFF", "#FFFFFF", ...],
     ...
   ],
-  "cooldown": 700
+  "cooldown": 500
 }
 ```
 
@@ -334,10 +334,6 @@ Sent when a client attempts to paint too quickly.
 
 ## State Guarantees
 
-**What the server guarantees:**
-- All clients eventually see the same board state
-- UGuarantees
-
 **The server guarantees:**
 - All clients see the same board state
 - Updates broadcast in processing order
@@ -348,26 +344,8 @@ Sent when a client attempts to paint too quickly.
 - Delivery confirmation
 - Replay or undo
 
-**Current configuration (128×128 board):**
-- Initial state payload: ~200 KB (JSON)
-- Update messa
-
-**128×128 board:**
-- Initial state: ~200 KB JSON
-- Update message: ~50 bytes
-- Memory: ~0.22 MB
-
 ## Security
-
 - No authentication
 - No authorization  
-- Rate limiting: 700ms cooldown per client
+- Rate limiting
 - Use `wss://` in production
-
-## Testing
-
-Connect with websocat:
-```bash
-websocat ws://localhost:3000
-{"type":"paint","x":10,"y":10,"color":"#FF0000"}
-```
