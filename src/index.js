@@ -2,11 +2,13 @@ const WebSocket = require('ws');
 const { parseMessage, validatePaintMessage } = require('./utils');
 const { PORT, MESSAGE_TYPES, SESSION_NAME, PAINT_COOLDOWN_MS } = require('./constants');
 const { initializeBoard, startAutosave, saveHistory } = require('./storage');
+const { checkBotBehavior } = require('./heuristics');
 
 // Global state
 let board;
 const clients = new Set();
 const clientLastPaint = new WeakMap(); // Track last paint time per client
+const clientRequestHistory = new WeakMap(); // Track last 20 requests per client
 
 // ============================================================================
 // WebSocket Message Handlers
@@ -48,8 +50,27 @@ function handlePaint(ws, message) {
   const validation = validatePaintMessage(message);
   if (!validation.valid) return;
 
-  // Rate limiting check
   const now = Date.now();
+  const { x, y, color } = message;
+
+  // Record ALL paint attempts in history (before any checks)
+  const requestHistory = clientRequestHistory.get(ws) || [];
+  requestHistory.push({ timestamp: now, x, y, color });
+  
+  // Keep only last 20 requests
+  if (requestHistory.length > 20) {
+    requestHistory.shift();
+  }
+  clientRequestHistory.set(ws, requestHistory);
+
+  // Bot detection check
+  const botCheck = checkBotBehavior(requestHistory);
+  if (botCheck.isBot) {
+    // Silently reject bot requests
+    return;
+  }
+
+  // Rate limiting check
   const lastPaint = clientLastPaint.get(ws) || 0;
   const timeSinceLastPaint = now - lastPaint;
 
@@ -63,7 +84,6 @@ function handlePaint(ws, message) {
     return;
   }
 
-  const { x, y, color } = message;
   const normalizedColor = board.setPixel(x, y, color);
 
   // Update last paint time for this client
@@ -120,6 +140,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     clients.delete(ws);
     clientLastPaint.delete(ws);
+    clientRequestHistory.delete(ws);
   });
 
   ws.on('error', () => {});
