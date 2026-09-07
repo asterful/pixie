@@ -64,9 +64,12 @@ impl History {
         // Seed initial event and snapshot if the database is completely empty
         if initial_count == 0 {
             let mut conn = conn_arc.lock().unwrap();
-            let default_canvas = Canvas::new(100, 100).expect("Failed to create default canvas");
+            let width = crate::env::default_canvas_width();
+            let height = crate::env::default_canvas_height();
+            
+            let default_canvas = Canvas::new(width, height).expect("Failed to create default canvas");
             let init_change = Change {
-                event: ChangeEvent::Init { width: 100, height: 100 },
+                event: ChangeEvent::Init { width, height },
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
