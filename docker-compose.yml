@@ -1,0 +1,27 @@
+services:
+  pixie:
+    build: .
+    container_name: pixie-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - pixie_data:/data
+    environment:
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - DEFAULT_CANVAS_WIDTH=${DEFAULT_CANVAS_WIDTH}
+      - DEFAULT_CANVAS_HEIGHT=${DEFAULT_CANVAS_HEIGHT}
+      - DEFAULT_SNAPSHOT_INTERVAL=${DEFAULT_SNAPSHOT_INTERVAL}
+      - RATE_LIMIT_TOKENS=${RATE_LIMIT_TOKENS}
+      - RATE_LIMIT_REFILL_RATE_MS=${RATE_LIMIT_REFILL_RATE_MS}
+      - DATABASE_PATH=${DATABASE_PATH}
+    networks:
+      - default
+      - tunnel
+
+volumes:
+  pixie_data:
+
+networks:
+  tunnel:
+    external: true
