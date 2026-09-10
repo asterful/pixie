@@ -458,7 +458,6 @@
                     initBoardAsync(msg); 
                     break;
                 case 'update': 
-                    // Any confirmed server update for a coordinate immediately cancels our local rollback
                     const key = `${msg.x},${msg.y}`;
                     if (state.predictions.has(key)) {
                         clearTimeout(state.predictions.get(key).timeout);
@@ -480,7 +479,6 @@
             bufferCanvas.width = msg.width;
             bufferCanvas.height = msg.height;
 
-            // Ultra-fast background rendering using Direct ImageData Array Buffer
             const imgData = bufferCtx.createImageData(msg.width, msg.height);
             const data = imgData.data;
             const parsedPalette = msg.palette.map(hexToRgb);
@@ -498,10 +496,8 @@
             bufferCtx.putImageData(imgData, 0, 0);
             centerView();
 
-            // Perform initial frame draw behind the solid screen
             renderScene();
 
-            // Double RAF guarantees the browser GPU has officially painted the frame
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     const completeInitialization = () => {
@@ -537,9 +533,6 @@
             const targetColor = state.color;
 
             let originalHex;
-            
-            // If the user clicks rapidly, we carry forward the true original color 
-            // instead of capturing their unconfirmed predicted color as the rollback target
             if (state.predictions.has(key)) {
                 originalHex = state.predictions.get(key).originalColor;
                 clearTimeout(state.predictions.get(key).timeout);
@@ -551,19 +544,15 @@
                 originalHex = originalHex.toUpperCase();
             }
 
-            // Set the prediction rollback timeout (reverts locally if server drops the packet)
             const timeout = setTimeout(() => {
                 updatePixel(x, y, originalHex);
                 state.predictions.delete(key);
             }, 2000);
 
-            // Store prediction state
             state.predictions.set(key, { timeout, originalColor: originalHex });
             
-            // Instantly paint the local buffer (Client Prediction)
             updatePixel(x, y, targetColor);
 
-            // Transmit to server
             state.ws.send(JSON.stringify({
                 type: 'paint', x: x, y: y, color: targetColor
             }));
@@ -571,6 +560,7 @@
 
         // --- Input Handling ---
         function setupInput() {
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
             canvas.addEventListener('mousedown', onPointerDown);
             window.addEventListener('mousemove', onPointerMove);
             window.addEventListener('mouseup', onPointerUp);
@@ -601,12 +591,24 @@
             state.drag.lastX = e.clientX;
             state.drag.lastY = e.clientY;
             state.drag.moved = false;
+            canvas.style.cursor = 'grabbing';
         }
 
         function onPointerMove(e) {
-            // Strict lock: no cursor updates or math executed until board is 100% ready
             if (!state.isReady) {
                 canvas.style.cursor = 'default';
+                return;
+            }
+
+            if (state.drag.isDragging) {
+                canvas.style.cursor = 'grabbing';
+                const dx = e.clientX - state.drag.lastX;
+                const dy = e.clientY - state.drag.lastY;
+                if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.drag.moved = true;
+                state.view.x += dx;
+                state.view.y += dy;
+                state.drag.lastX = e.clientX;
+                state.drag.lastY = e.clientY;
                 return;
             }
 
@@ -627,15 +629,6 @@
                 ui.coords.innerText = `- , -`;
                 canvas.style.cursor = 'default';
             }
-
-            if (!state.drag.isDragging) return;
-            const dx = e.clientX - state.drag.lastX;
-            const dy = e.clientY - state.drag.lastY;
-            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.drag.moved = true;
-            state.view.x += dx;
-            state.view.y += dy;
-            state.drag.lastX = e.clientX;
-            state.drag.lastY = e.clientY;
         }
 
         function onPointerUp(e) {
@@ -697,7 +690,7 @@
                 ctx.stroke();
             }
 
-            if (state.hover.x !== -1) {
+            if (state.hover.x !== -1 && !state.drag.isDragging) {
                 if (state.isEyedropper) {
                     ctx.strokeStyle = '#ffffff';
                     ctx.lineWidth = 2 / state.view.zoom;
