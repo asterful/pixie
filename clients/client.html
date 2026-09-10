@@ -13,14 +13,14 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #1e1e1e;
+            background-color: #18181b;
             touch-action: none;
         }
         #gameCanvas {
             display: block;
             width: 100%;
             height: 100%;
-            cursor: crosshair;
+            cursor: default;
         }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -32,7 +32,7 @@
     <canvas id="gameCanvas"></canvas>
 
     <!-- Top UI: Stats & Tools -->
-    <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
+    <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none z-10">
         <!-- Left side: Stats & Timeline -->
         <div class="flex flex-col gap-2 pointer-events-auto">
             <!-- Stats Badge -->
@@ -40,14 +40,14 @@
                 <div class="flex items-center gap-2">
                     <span class="relative flex h-3 w-3">
                         <span id="ping-indicator-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span id="ping-indicator-dot" class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        <span id="ping-indicator-dot" class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                     </span>
                     <span class="text-sm font-medium text-gray-300">
                         <span id="client-count">0</span> Online
                     </span>
                 </div>
                 <div class="h-4 w-px bg-gray-700"></div>
-                <div class="text-xs text-gray-500 font-mono" id="coords">0, 0</div>
+                <div class="text-xs text-gray-500 font-mono" id="coords">- , -</div>
             </div>
             
             <!-- Timeline Button -->
@@ -72,8 +72,7 @@
     </div>
 
     <!-- Bottom UI: Unified Toolbar -->
-    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pointer-events-none">
-        <!-- Removed overflow-hidden from toolbar to allow popups/hovers to extend -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pointer-events-none z-10">
         <div class="bg-gray-900/90 backdrop-blur-md p-2 rounded-xl border border-gray-700 shadow-2xl pointer-events-auto flex gap-2 items-center w-fit mx-auto max-w-full">
             
             <!-- Eyedropper Tool -->
@@ -93,7 +92,7 @@
                     </div>
                 </button>
 
-                <!-- Custom Color Picker Popup (Positioned relative to button) -->
+                <!-- Custom Color Picker Popup -->
                 <div id="custom-picker" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 bg-gray-900/95 backdrop-blur-xl p-3 rounded-xl border border-gray-700 shadow-2xl hidden flex-col gap-4 w-64 z-50">
                     <!-- Saturation/Value Box -->
                     <div id="cp-sv" class="w-full h-40 rounded-lg relative cursor-crosshair overflow-hidden touch-none" style="background-color: red;">
@@ -110,25 +109,25 @@
 
             <div class="w-px h-8 bg-gray-700 shrink-0 mx-1"></div>
 
-            <!-- Palette Swatches (Added py-2 to prevent hover clip) -->
+            <!-- Palette Swatches -->
             <div class="flex flex-1 gap-2 overflow-x-auto hide-scrollbar items-center px-1 py-2" id="palette-container"></div>
         </div>
     </div>
 
-    <!-- Connection Status Overlay -->
-    <div id="connection-overlay" class="absolute inset-0 bg-black/80 flex items-center justify-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none">
+    <!-- Solid Bulletproof Connection / Loading Overlay -->
+    <div id="connection-overlay" class="fixed inset-0 w-screen h-screen bg-[#18181b] flex items-center justify-center z-[9999] transition-opacity duration-500 opacity-100 pointer-events-auto">
         <div class="text-center">
             <div class="mb-4 flex justify-center">
                 <i data-lucide="loader-2" class="w-10 h-10 text-white animate-spin"></i>
             </div>
-            <h2 class="text-xl font-bold text-white">Connecting to Canvas...</h2>
+            <h2 class="text-xl font-bold text-white tracking-wide">Initializing Canvas...</h2>
         </div>
     </div>
 
     <script>
         lucide.createIcons();
 
-        const WS_URL = 'ws://127.0.0.1:8080?auth=test-token';
+        const WS_URL = 'wss://pixels.terosu.com';
         const DEFAULT_PALETTE = [
             '#FFFFFF', '#E4E4E4', '#888888', '#222222', '#000000',
             '#FFA7D1', '#E50000', '#E59500', '#A06A42', '#E5D900', 
@@ -140,6 +139,7 @@
         const state = {
             ws: null,
             isConnected: false,
+            isReady: false, // Strict operational readiness flag
             board: { width: 128, height: 128 },
             view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
             drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
@@ -148,14 +148,19 @@
             isEyedropper: false,
             isPickerOpen: false,
             hover: { x: -1, y: -1 },
-            picker: { h: 0, s: 1, v: 1 }
+            picker: { h: 0, s: 1, v: 1 },
+            predictions: new Map() // Tracks client prediction timeouts
         };
+
+        let pingInterval = null;
 
         // --- DOM Elements ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { alpha: false });
+        
+        // Offscreen Canvas Buffer
         const bufferCanvas = document.createElement('canvas');
-        const bufferCtx = bufferCanvas.getContext('2d');
+        const bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
 
         const ui = {
             clientCount: document.getElementById('client-count'),
@@ -183,24 +188,36 @@
         function init() {
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
+            document.addEventListener('visibilitychange', handleVisibilityChange);
             setupInput();
             renderPalette();
             setupColorPicker();
             connectWebSocket();
             
-            // Initialize picker state
             selectColor(state.color);
-            
-            requestAnimationFrame(render);
+            requestAnimationFrame(renderLoop);
         }
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            render(); 
+            if (state.isReady) {
+                renderScene();
+            }
         }
 
-        // --- Color Logic ---
+        function handleVisibilityChange() {
+            if (document.visibilityState === 'visible' && state.isReady) {
+                renderScene();
+            }
+        }
+
+        // --- Helpers ---
+        function hexToRgb(hex) {
+            const num = parseInt(hex.replace('#', ''), 16);
+            return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+        }
+
         function hsvToHex(h, s, v) {
             let r, g, b, i, f, p, q, t;
             i = Math.floor(h * 6);
@@ -248,7 +265,6 @@
             ui.currentDisplay.style.backgroundColor = color;
             
             if (!fromPicker) {
-                // Sync picker state to this color
                 const hsv = hexToHsv(color);
                 state.picker = hsv;
                 updatePickerUI();
@@ -259,7 +275,6 @@
 
         // --- Custom Color Picker ---
         function setupColorPicker() {
-            // Toggle visibility
             ui.btnColorWheel.onclick = (e) => {
                 e.stopPropagation();
                 state.isPickerOpen = !state.isPickerOpen;
@@ -267,7 +282,6 @@
                 ui.pickerEl.classList.toggle('flex', state.isPickerOpen);
             };
 
-            // Close on outside click
             window.addEventListener('mousedown', (e) => {
                 if (state.isPickerOpen && !ui.pickerEl.contains(e.target) && !ui.btnColorWheel.contains(e.target)) {
                     state.isPickerOpen = false;
@@ -276,11 +290,9 @@
                 }
             });
 
-            // Prevent drawing when clicking on picker
             ui.pickerEl.addEventListener('mousedown', e => e.stopPropagation());
             ui.pickerEl.addEventListener('touchstart', e => e.stopPropagation(), {passive: false});
 
-            // Interaction logic
             const handleHue = (clientX) => {
                 const rect = ui.hueBox.getBoundingClientRect();
                 let x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
@@ -299,7 +311,6 @@
                 updateColorFromPicker();
             };
 
-            // Mouse Events
             let draggingHue = false;
             let draggingSV = false;
 
@@ -313,7 +324,6 @@
             
             window.addEventListener('mouseup', () => { draggingHue = false; draggingSV = false; });
 
-            // Touch Events
             ui.hueBox.addEventListener('touchstart', e => { draggingHue = true; handleHue(e.touches[0].clientX); e.preventDefault(); }, {passive: false});
             ui.svBox.addEventListener('touchstart', e => { draggingSV = true; handleSV(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive: false});
             
@@ -326,14 +336,9 @@
         }
 
         function updatePickerUI() {
-            // Update Hue Thumb
             ui.hueThumb.style.left = `${state.picker.h * 100}%`;
-            
-            // Update SV Box Background (Hue)
             const hueColor = hsvToHex(state.picker.h, 1, 1);
             ui.svBox.style.backgroundColor = hueColor;
-            
-            // Update SV Thumb
             ui.svThumb.style.left = `${state.picker.s * 100}%`;
             ui.svThumb.style.top = `${(1 - state.picker.v) * 100}%`;
             ui.svThumb.style.backgroundColor = hsvToHex(state.picker.h, state.picker.s, state.picker.v);
@@ -376,13 +381,13 @@
         }
 
         function downloadCanvas() {
+            if (!state.isReady) return;
             const scale = 10;
             const downloadCanvas = document.createElement('canvas');
             downloadCanvas.width = state.board.width * scale;
             downloadCanvas.height = state.board.height * scale;
             const downloadCtx = downloadCanvas.getContext('2d');
             
-            // Use nearest neighbor scaling
             downloadCtx.imageSmoothingEnabled = false;
             downloadCtx.drawImage(bufferCanvas, 0, 0, state.board.width, state.board.height, 0, 0, state.board.width * scale, state.board.height * scale);
             
@@ -409,31 +414,30 @@
 
         // --- WebSocket Logic ---
         function connectWebSocket() {
-            ui.overlay.style.opacity = '1';
-            ui.overlay.style.pointerEvents = 'auto';
+            showLoadingOverlay();
 
             state.ws = new WebSocket(WS_URL);
 
             state.ws.onopen = () => {
-                console.log('Connected');
+                console.log('[WS] Connected');
                 state.isConnected = true;
-                ui.overlay.style.opacity = '0';
-                ui.overlay.style.pointerEvents = 'none';
                 ui.pingDot.className = "relative inline-flex rounded-full h-3 w-3 bg-green-500";
                 
-                setInterval(() => {
-                    if (state.ws.readyState === WebSocket.OPEN) {
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
                         state.ws.send(JSON.stringify({ type: 'ping' }));
                     }
                 }, 5000);
             };
 
             state.ws.onclose = () => {
-                console.log('Disconnected');
+                console.log('[WS] Disconnected');
                 state.isConnected = false;
+                state.isReady = false;
                 ui.pingDot.className = "relative inline-flex rounded-full h-3 w-3 bg-red-500";
-                ui.overlay.style.opacity = '1';
-                ui.overlay.style.pointerEvents = 'auto';
+                canvas.style.cursor = 'default';
+                showLoadingOverlay();
                 setTimeout(connectWebSocket, 3000);
             };
 
@@ -443,29 +447,82 @@
             };
         }
 
+        function showLoadingOverlay() {
+            ui.overlay.classList.remove('opacity-0', 'pointer-events-none');
+            ui.overlay.classList.add('opacity-100', 'pointer-events-auto');
+        }
+
         function handleMessage(msg) {
             switch (msg.type) {
-                case 'init': initBoard(msg); break;
-                case 'update': updatePixel(msg.x, msg.y, msg.color); break;
-                case 'pong': ui.clientCount.innerText = msg.clients; break;
+                case 'init': 
+                    initBoardAsync(msg); 
+                    break;
+                case 'update': 
+                    // Any confirmed server update for a coordinate immediately cancels our local rollback
+                    const key = `${msg.x},${msg.y}`;
+                    if (state.predictions.has(key)) {
+                        clearTimeout(state.predictions.get(key).timeout);
+                        state.predictions.delete(key);
+                    }
+                    updatePixel(msg.x, msg.y, msg.color); 
+                    break;
+                case 'pong': 
+                    ui.clientCount.innerText = msg.clients; 
+                    break;
             }
         }
 
-        function initBoard(msg) {
+        // Async Background Initialization Pipeline
+        function initBoardAsync(msg) {
+            state.isReady = false;
             state.board.width = msg.width;
             state.board.height = msg.height;
             bufferCanvas.width = msg.width;
             bufferCanvas.height = msg.height;
-            // board is now palette indices, palette contains the actual colors
-            for (let y = 0; y < msg.height; y++) {
-                for (let x = 0; x < msg.width; x++) {
-                    const paletteIndex = msg.board[y * msg.width + x];
-                    const color = msg.palette[paletteIndex];
-                    bufferCtx.fillStyle = color;
-                    bufferCtx.fillRect(x, y, 1, 1);
-                }
+
+            // Ultra-fast background rendering using Direct ImageData Array Buffer
+            const imgData = bufferCtx.createImageData(msg.width, msg.height);
+            const data = imgData.data;
+            const parsedPalette = msg.palette.map(hexToRgb);
+
+            for (let i = 0; i < msg.board.length; i++) {
+                const colorIndex = msg.board[i];
+                const rgb = parsedPalette[colorIndex] || [255, 255, 255];
+                const ptr = i * 4;
+                data[ptr] = rgb[0];
+                data[ptr + 1] = rgb[1];
+                data[ptr + 2] = rgb[2];
+                data[ptr + 3] = 255;
             }
+
+            bufferCtx.putImageData(imgData, 0, 0);
             centerView();
+
+            // Perform initial frame draw behind the solid screen
+            renderScene();
+
+            // Double RAF guarantees the browser GPU has officially painted the frame
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    const completeInitialization = () => {
+                        state.isReady = true;
+                        ui.overlay.classList.remove('opacity-100', 'pointer-events-auto');
+                        ui.overlay.classList.add('opacity-0', 'pointer-events-none');
+                    };
+
+                    if (document.visibilityState === 'visible') {
+                        completeInitialization();
+                    } else {
+                        const onVisible = () => {
+                            if (document.visibilityState === 'visible') {
+                                document.removeEventListener('visibilitychange', onVisible);
+                                completeInitialization();
+                            }
+                        };
+                        document.addEventListener('visibilitychange', onVisible);
+                    }
+                });
+            });
         }
 
         function updatePixel(x, y, color) {
@@ -474,9 +531,41 @@
         }
 
         function sendPaint(x, y) {
-            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN || !state.isReady) return;
+
+            const key = `${x},${y}`;
+            const targetColor = state.color;
+
+            let originalHex;
+            
+            // If the user clicks rapidly, we carry forward the true original color 
+            // instead of capturing their unconfirmed predicted color as the rollback target
+            if (state.predictions.has(key)) {
+                originalHex = state.predictions.get(key).originalColor;
+                clearTimeout(state.predictions.get(key).timeout);
+            } else {
+                const p = bufferCtx.getImageData(x, y, 1, 1).data;
+                originalHex = "#" + ("0" + p[0].toString(16)).slice(-2) + 
+                                  ("0" + p[1].toString(16)).slice(-2) + 
+                                  ("0" + p[2].toString(16)).slice(-2);
+                originalHex = originalHex.toUpperCase();
+            }
+
+            // Set the prediction rollback timeout (reverts locally if server drops the packet)
+            const timeout = setTimeout(() => {
+                updatePixel(x, y, originalHex);
+                state.predictions.delete(key);
+            }, 2000);
+
+            // Store prediction state
+            state.predictions.set(key, { timeout, originalColor: originalHex });
+            
+            // Instantly paint the local buffer (Client Prediction)
+            updatePixel(x, y, targetColor);
+
+            // Transmit to server
             state.ws.send(JSON.stringify({
-                type: 'paint', x: x, y: y, color: state.color
+                type: 'paint', x: x, y: y, color: targetColor
             }));
         }
 
@@ -486,17 +575,26 @@
             window.addEventListener('mousemove', onPointerMove);
             window.addEventListener('mouseup', onPointerUp);
             canvas.addEventListener('wheel', onWheel, { passive: false });
+            canvas.addEventListener('mouseleave', () => {
+                state.hover.x = -1;
+                state.hover.y = -1;
+                ui.coords.innerText = `- , -`;
+            });
+
             canvas.addEventListener('touchstart', (e) => {
                 if(e.touches.length === 1) onPointerDown(e.touches[0]);
             }, { passive: false });
+            
             window.addEventListener('touchmove', (e) => {
                 if(e.touches.length === 1) onPointerMove(e.touches[0]);
                 e.preventDefault();
             }, { passive: false });
+            
             window.addEventListener('touchend', onPointerUp);
         }
 
         function onPointerDown(e) {
+            if (!state.isReady) return;
             state.drag.isDragging = true;
             state.drag.startX = e.clientX;
             state.drag.startY = e.clientY;
@@ -506,6 +604,12 @@
         }
 
         function onPointerMove(e) {
+            // Strict lock: no cursor updates or math executed until board is 100% ready
+            if (!state.isReady) {
+                canvas.style.cursor = 'default';
+                return;
+            }
+
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
@@ -535,7 +639,7 @@
         }
 
         function onPointerUp(e) {
-            if (!state.drag.isDragging) return;
+            if (!state.isReady || !state.drag.isDragging) return;
             state.drag.isDragging = false;
             if (!state.drag.moved && state.hover.x !== -1) {
                 if (state.isEyedropper) {
@@ -553,6 +657,7 @@
         }
 
         function onWheel(e) {
+            if (!state.isReady) return;
             e.preventDefault();
             const zoomIntensity = 0.05;
             const mouseX = e.clientX;
@@ -567,9 +672,12 @@
             state.view.zoom = newZoom;
         }
 
-        function render() {
+        function renderScene() {
             ctx.fillStyle = '#18181b';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!state.isReady) return;
+
             ctx.imageSmoothingEnabled = false;
             ctx.setTransform(state.view.zoom, 0, 0, state.view.zoom, state.view.x, state.view.y);
             ctx.fillStyle = '#ffffff';
@@ -608,7 +716,11 @@
                 }
             }
             ctx.setTransform(1, 0, 0, 1, 0, 0);
-            requestAnimationFrame(render);
+        }
+
+        function renderLoop() {
+            renderScene();
+            requestAnimationFrame(renderLoop);
         }
 
         init();
