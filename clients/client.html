@@ -114,13 +114,32 @@
         </div>
     </div>
 
-    <!-- Solid Bulletproof Connection / Loading Overlay -->
+    <!-- Solid Bulletproof Connection / Loading Overlay with Controls Infographic -->
     <div id="connection-overlay" class="fixed inset-0 w-screen h-screen bg-[#18181b] flex items-center justify-center z-[9999] transition-opacity duration-500 opacity-100 pointer-events-auto">
-        <div class="text-center">
+        <div class="text-center max-w-sm px-6">
             <div class="mb-4 flex justify-center">
                 <i data-lucide="loader-2" class="w-10 h-10 text-white animate-spin"></i>
             </div>
-            <h2 class="text-xl font-bold text-white tracking-wide">Initializing Canvas...</h2>
+            <h2 class="text-xl font-bold text-white tracking-wide mb-6">Initializing Canvas...</h2>
+            
+            <!-- Controls Guide Infographic -->
+            <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 text-left shadow-2xl backdrop-blur-md">
+                <h3 class="text-xs font-semibold tracking-wider text-gray-400 uppercase mb-3 text-center border-b border-gray-800 pb-2">Navigation & Controls</h3>
+                <div class="space-y-3 text-sm">
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Left Click</span>
+                        <span class="text-gray-300 text-right text-xs">Paint pixel / Eyedropper</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Right / Middle Click</span>
+                        <span class="text-gray-300 text-right text-xs">Pan canvas</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Scroll Wheel</span>
+                        <span class="text-gray-300 text-right text-xs">Zoom in / out</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -585,13 +604,31 @@
 
         function onPointerDown(e) {
             if (!state.isReady) return;
-            state.drag.isDragging = true;
-            state.drag.startX = e.clientX;
-            state.drag.startY = e.clientY;
-            state.drag.lastX = e.clientX;
-            state.drag.lastY = e.clientY;
-            state.drag.moved = false;
-            canvas.style.cursor = 'grabbing';
+
+            // Mouse button check: 0 = left click, 1 = middle click, 2 = right click
+            if (e.button !== undefined) {
+                if (e.button === 1 || e.button === 2) {
+                    // Middle or Right click reserved for panning
+                    state.drag.isDragging = true;
+                    state.drag.startX = e.clientX;
+                    state.drag.startY = e.clientY;
+                    state.drag.lastX = e.clientX;
+                    state.drag.lastY = e.clientY;
+                    state.drag.moved = false;
+                    canvas.style.cursor = 'grabbing';
+                } else if (e.button === 0) {
+                    // Left click exclusive to painting/eyedropper (no panning)
+                    state.drag.isDragging = false;
+                }
+            } else {
+                // Touch event support (e.button is undefined)
+                state.drag.isDragging = true;
+                state.drag.startX = e.clientX;
+                state.drag.startY = e.clientY;
+                state.drag.lastX = e.clientX;
+                state.drag.lastY = e.clientY;
+                state.drag.moved = false;
+            }
         }
 
         function onPointerMove(e) {
@@ -632,9 +669,25 @@
         }
 
         function onPointerUp(e) {
-            if (!state.isReady || !state.drag.isDragging) return;
-            state.drag.isDragging = false;
-            if (!state.drag.moved && state.hover.x !== -1) {
+            if (!state.isReady) return;
+
+            if (state.drag.isDragging) {
+                state.drag.isDragging = false;
+                canvas.style.cursor = state.isEyedropper ? 'cell' : 'crosshair';
+                
+                // Touch tap fallback
+                if (e.type === 'touchend' && !state.drag.moved && state.hover.x !== -1) {
+                    if (state.isEyedropper) {
+                        pickColorFromBoard(state.hover.x, state.hover.y);
+                    } else {
+                        sendPaint(state.hover.x, state.hover.y);
+                    }
+                }
+                return;
+            }
+
+            // Left click release (button === 0)
+            if (state.hover.x !== -1) {
                 if (state.isEyedropper) {
                     pickColorFromBoard(state.hover.x, state.hover.y);
                 } else {
