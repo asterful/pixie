@@ -33,7 +33,7 @@
 
     <!-- Top UI: Stats & Tools -->
     <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none z-10">
-        <!-- Left side: Stats & Timeline -->
+        <!-- Left side: Stats, Timeline & Drag Paint Badge -->
         <div class="flex flex-col gap-2 pointer-events-auto">
             <!-- Stats Badge -->
             <div class="bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-lg border border-gray-700 shadow-lg flex items-center gap-3">
@@ -48,6 +48,12 @@
                 </div>
                 <div class="h-4 w-px bg-gray-700"></div>
                 <div class="text-xs text-gray-500 font-mono" id="coords">- , -</div>
+                
+                <!-- Drag Paint Enabled Indicator Badge -->
+                <div id="drag-paint-badge" class="hidden items-center gap-1.5 px-2 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-xs font-medium text-blue-300 animate-pulse">
+                    <i data-lucide="brush" class="w-3 h-3"></i>
+                    Drag Paint Active
+                </div>
             </div>
             
             <!-- Timeline Button -->
@@ -65,7 +71,14 @@
             <button id="btn-grid" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-blue-400" title="Toggle Grid">
                 <i data-lucide="grid" class="w-5 h-5"></i>
             </button>
-            <button id="btn-center" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Reset View">
+            <div class="h-px bg-gray-700 my-0.5"></div>
+            <button id="btn-zoom-in" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Zoom In (Ctrl +)">
+                <i data-lucide="zoom-in" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-zoom-out" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Zoom Out (Ctrl -)">
+                <i data-lucide="zoom-out" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-center" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Reset View (Ctrl 0)">
                 <i data-lucide="focus" class="w-5 h-5"></i>
             </button>
         </div>
@@ -128,15 +141,15 @@
                 <div class="space-y-3 text-sm">
                     <div class="flex items-center justify-between gap-4">
                         <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Left Click</span>
-                        <span class="text-gray-300 text-right text-xs">Paint pixel / Eyedropper</span>
+                        <span class="text-gray-300 text-right text-xs">Paint / Drag paint (Deep Zoom)</span>
                     </div>
                     <div class="flex items-center justify-between gap-4">
-                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Right / Middle Click</span>
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Right Click</span>
                         <span class="text-gray-300 text-right text-xs">Pan canvas</span>
                     </div>
                     <div class="flex items-center justify-between gap-4">
-                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Scroll Wheel</span>
-                        <span class="text-gray-300 text-right text-xs">Zoom in / out</span>
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Ctrl + / - / 0</span>
+                        <span class="text-gray-300 text-right text-xs">Zoom in / out / Reset view</span>
                     </div>
                 </div>
             </div>
@@ -158,17 +171,20 @@
         const state = {
             ws: null,
             isConnected: false,
-            isReady: false, // Strict operational readiness flag
+            isReady: false,
             board: { width: 128, height: 128 },
             view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
+            zoomThreshold: 18, // Stricter threshold for drag paint (slightly more zoomed in)
             drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
+            isLeftDragging: false,
+            dragPaint: { lastX: -1, lastY: -1 },
             color: '#FF5733',
             showGrid: true,
             isEyedropper: false,
             isPickerOpen: false,
             hover: { x: -1, y: -1 },
             picker: { h: 0, s: 1, v: 1 },
-            predictions: new Map() // Tracks client prediction timeouts
+            predictions: new Map()
         };
 
         let pingInterval = null;
@@ -177,7 +193,6 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         
-        // Offscreen Canvas Buffer
         const bufferCanvas = document.createElement('canvas');
         const bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
 
@@ -185,17 +200,19 @@
             clientCount: document.getElementById('client-count'),
             coords: document.getElementById('coords'),
             pingDot: document.getElementById('ping-indicator-dot'),
+            dragPaintBadge: document.getElementById('drag-paint-badge'),
             overlay: document.getElementById('connection-overlay'),
             palette: document.getElementById('palette-container'),
             currentDisplay: document.getElementById('current-color-display'),
             btnGrid: document.getElementById('btn-grid'),
             btnEyedropper: document.getElementById('btn-eyedropper'),
             btnCenter: document.getElementById('btn-center'),
+            btnZoomIn: document.getElementById('btn-zoom-in'),
+            btnZoomOut: document.getElementById('btn-zoom-out'),
             btnDownload: document.getElementById('btn-download'),
             btnColorWheel: document.getElementById('btn-color-wheel'),
             btnTimeline: document.getElementById('btn-timeline'),
             
-            // Picker
             pickerEl: document.getElementById('custom-picker'),
             svBox: document.getElementById('cp-sv'),
             svThumb: document.getElementById('cp-sv-thumb'),
@@ -214,6 +231,7 @@
             connectWebSocket();
             
             selectColor(state.color);
+            updateZoomUI();
             requestAnimationFrame(renderLoop);
         }
 
@@ -229,6 +247,12 @@
             if (document.visibilityState === 'visible' && state.isReady) {
                 renderScene();
             }
+        }
+
+        function updateZoomUI() {
+            const isDragPaintActive = state.view.zoom >= state.zoomThreshold;
+            ui.dragPaintBadge.classList.toggle('hidden', !isDragPaintActive);
+            ui.dragPaintBadge.classList.toggle('flex', isDragPaintActive);
         }
 
         // --- Helpers ---
@@ -388,6 +412,8 @@
 
             ui.btnEyedropper.onclick = toggleEyedropper;
             ui.btnCenter.onclick = centerView;
+            ui.btnZoomIn.onclick = () => zoomStep(1.25);
+            ui.btnZoomOut.onclick = () => zoomStep(1 / 1.25);
             ui.btnDownload.onclick = downloadCanvas;
             ui.btnTimeline.onclick = () => window.location.href = '/pages/timeline';
         }
@@ -429,6 +455,23 @@
             if(state.view.zoom < 1) state.view.zoom = 2;
             state.view.x = centerX - (state.board.width * state.view.zoom) / 2;
             state.view.y = centerY - (state.board.height * state.view.zoom) / 2;
+            updateZoomUI();
+        }
+
+        function zoomStep(multiplier) {
+            if (!state.isReady) return;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const worldX = (centerX - state.view.x) / state.view.zoom;
+            const worldY = (centerY - state.view.y) / state.view.zoom;
+            
+            let newZoom = state.view.zoom * multiplier;
+            newZoom = Math.max(state.view.minZoom, Math.min(newZoom, state.view.maxZoom));
+            
+            state.view.x = centerX - worldX * newZoom;
+            state.view.y = centerY - worldY * newZoom;
+            state.view.zoom = newZoom;
+            updateZoomUI();
         }
 
         // --- WebSocket Logic ---
@@ -584,6 +627,23 @@
             window.addEventListener('mousemove', onPointerMove);
             window.addEventListener('mouseup', onPointerUp);
             canvas.addEventListener('wheel', onWheel, { passive: false });
+            
+            // Intercept Ctrl + / Ctrl - / Ctrl 0 to zoom canvas instead of the browser page layout
+            window.addEventListener('keydown', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+                        e.preventDefault();
+                        zoomStep(1.25);
+                    } else if (e.key === '-' || e.code === 'NumpadSubtract') {
+                        e.preventDefault();
+                        zoomStep(1 / 1.25);
+                    } else if (e.key === '0') {
+                        e.preventDefault();
+                        centerView();
+                    }
+                }
+            });
+
             canvas.addEventListener('mouseleave', () => {
                 state.hover.x = -1;
                 state.hover.y = -1;
@@ -605,10 +665,8 @@
         function onPointerDown(e) {
             if (!state.isReady) return;
 
-            // Mouse button check: 0 = left click, 1 = middle click, 2 = right click
             if (e.button !== undefined) {
                 if (e.button === 1 || e.button === 2) {
-                    // Middle or Right click reserved for panning
                     state.drag.isDragging = true;
                     state.drag.startX = e.clientX;
                     state.drag.startY = e.clientY;
@@ -617,11 +675,18 @@
                     state.drag.moved = false;
                     canvas.style.cursor = 'grabbing';
                 } else if (e.button === 0) {
-                    // Left click exclusive to painting/eyedropper (no panning)
-                    state.drag.isDragging = false;
+                    if (state.view.zoom >= state.zoomThreshold && !state.isEyedropper) {
+                        state.isLeftDragging = true;
+                        state.dragPaint.lastX = state.hover.x;
+                        state.dragPaint.lastY = state.hover.y;
+                        if (state.hover.x !== -1) {
+                            sendPaint(state.hover.x, state.hover.y);
+                        }
+                    } else {
+                        state.isLeftDragging = false;
+                    }
                 }
             } else {
-                // Touch event support (e.button is undefined)
                 state.drag.isDragging = true;
                 state.drag.startX = e.clientX;
                 state.drag.startY = e.clientY;
@@ -660,6 +725,14 @@
                 state.hover.y = boardY;
                 ui.coords.innerText = `${boardX}, ${boardY}`;
                 canvas.style.cursor = state.isEyedropper ? 'cell' : 'crosshair';
+
+                if (state.isLeftDragging && !state.isEyedropper) {
+                    if (boardX !== state.dragPaint.lastX || boardY !== state.dragPaint.lastY) {
+                        state.dragPaint.lastX = boardX;
+                        state.dragPaint.lastY = boardY;
+                        sendPaint(boardX, boardY);
+                    }
+                }
             } else {
                 state.hover.x = -1;
                 state.hover.y = -1;
@@ -671,11 +744,15 @@
         function onPointerUp(e) {
             if (!state.isReady) return;
 
+            if (state.isLeftDragging) {
+                state.isLeftDragging = false;
+                return;
+            }
+
             if (state.drag.isDragging) {
                 state.drag.isDragging = false;
                 canvas.style.cursor = state.isEyedropper ? 'cell' : 'crosshair';
                 
-                // Touch tap fallback
                 if (e.type === 'touchend' && !state.drag.moved && state.hover.x !== -1) {
                     if (state.isEyedropper) {
                         pickColorFromBoard(state.hover.x, state.hover.y);
@@ -686,7 +763,6 @@
                 return;
             }
 
-            // Left click release (button === 0)
             if (state.hover.x !== -1) {
                 if (state.isEyedropper) {
                     pickColorFromBoard(state.hover.x, state.hover.y);
@@ -716,6 +792,7 @@
             state.view.x = mouseX - worldX * newZoom;
             state.view.y = mouseY - worldY * newZoom;
             state.view.zoom = newZoom;
+            updateZoomUI();
         }
 
         function renderScene() {
