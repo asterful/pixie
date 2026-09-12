@@ -48,6 +48,15 @@ pub enum HistoryLookahead {
 #[allow(dead_code)]
 impl History {
 
+    /// Returns the true count of events directly from SQLite (disk).
+    pub fn db_event_count(&self) -> Result<usize, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let max_id: i64 = conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM events", [], |row| row.get(0))
+            .unwrap_or(0);
+        Ok(max_id as usize)
+    }
+
     pub fn get_history_chunk(
         &self,
         target_id: u64,
