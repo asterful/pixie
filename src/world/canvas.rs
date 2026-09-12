@@ -19,7 +19,7 @@ impl std::fmt::Display for CanvasError {
 impl std::error::Error for CanvasError {}
 
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Canvas {
     width: usize,
     height: usize,

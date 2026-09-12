@@ -31,9 +31,177 @@ pub struct History {
     event_count: std::sync::atomic::AtomicUsize,
 }
 
+pub struct HistoryChunk {
+    pub prev_snapshot: Option<(i64, Canvas)>,
+    pub current_snapshot: Option<(i64, Canvas)>,
+    pub next_snapshot: Option<(i64, Canvas)>,
+    pub next_next_snapshot: Option<(i64, Canvas)>,
+    pub events: Vec<(i64, Change)>,
+}
+
+pub enum HistoryLookahead {
+    Full,
+    Forward,
+    Backward,
+}
 
 #[allow(dead_code)]
 impl History {
+
+    pub fn get_history_chunk(
+        &self,
+        target_id: u64,
+        lookahead: HistoryLookahead,
+    ) -> Result<HistoryChunk, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let target_id = target_id as i64;
+
+        // 1. Base snapshot <= target
+        let current_snapshot = Self::latest_snapshot_before_conn(&conn, target_id)?;
+        let current_id = current_snapshot.as_ref().map(|(id, _)| *id).unwrap_or(0);
+
+        // 2. 1 snapshot down (backward)
+        let prev_snapshot = match lookahead {
+            HistoryLookahead::Forward => None,
+            _ => Self::snapshot_before_conn(&conn, current_id)?,
+        };
+
+        // 3. 1 snapshot up (forward)
+        let next_snapshot = match lookahead {
+            HistoryLookahead::Backward => None,
+            _ => Self::snapshot_after_conn(&conn, current_id)?,
+        };
+
+        // 4. 2 snapshots up (forward)
+        let next_id = next_snapshot.as_ref().map(|(id, _)| *id).unwrap_or(i64::MAX);
+        let next_next_snapshot = match lookahead {
+            HistoryLookahead::Backward => None,
+            _ => {
+                if next_id == i64::MAX {
+                    None
+                } else {
+                    Self::snapshot_after_conn(&conn, next_id)?
+                }
+            }
+        };
+
+        let prev_id = prev_snapshot.as_ref().map(|(id, _)| *id).unwrap_or(0);
+        let upper_bound_id = next_next_snapshot
+            .as_ref()
+            .map(|(id, _)| *id)
+            .unwrap_or(next_id);
+
+        // Bind event range across snapshot intervals (non-overlapping deltas)
+        let (min_id, max_id) = match lookahead {
+            HistoryLookahead::Forward => (next_id, upper_bound_id),
+            HistoryLookahead::Backward => (prev_id, current_id),
+            HistoryLookahead::Full => (prev_id, upper_bound_id),
+        };
+
+        let events = Self::fetch_events_conn(&conn, min_id, max_id)?;
+
+        // Filter out redundant snapshots for delta modes to prevent sending duplicate canvases
+        let (res_prev, res_curr, res_next, res_next_next) = match lookahead {
+            HistoryLookahead::Full => (prev_snapshot, current_snapshot, next_snapshot, next_next_snapshot),
+            HistoryLookahead::Forward => (None, None, None, next_next_snapshot),
+            HistoryLookahead::Backward => (prev_snapshot, None, None, None),
+        };
+
+        Ok(HistoryChunk {
+            prev_snapshot: res_prev,
+            current_snapshot: res_curr,
+            next_snapshot: res_next,
+            next_next_snapshot: res_next_next,
+            events,
+        })
+    }
+
+    fn snapshot_before_conn(conn: &rusqlite::Connection, current_id: i64) -> Result<Option<(i64, Canvas)>, rusqlite::Error> {
+        let mut stmt = conn.prepare(
+            "SELECT last_event_id, canvas_blob FROM snapshots WHERE last_event_id < ?1 ORDER BY last_event_id DESC LIMIT 1"
+        )?;
+        
+        let mut rows = stmt.query(rusqlite::params![current_id])?;
+        if let Some(row) = rows.next()? {
+            let last_event_id: i64 = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            let canvas: Canvas = bincode::deserialize(&blob).map_err(|_| {
+                rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Blob, Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to deserialize canvas blob")))
+            })?;
+            Ok(Some((last_event_id, canvas)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn snapshot_after_conn(conn: &rusqlite::Connection, current_id: i64) -> Result<Option<(i64, Canvas)>, rusqlite::Error> {
+        let mut stmt = conn.prepare(
+            "SELECT last_event_id, canvas_blob FROM snapshots WHERE last_event_id > ?1 ORDER BY last_event_id ASC LIMIT 1"
+        )?;
+        
+        let mut rows = stmt.query(rusqlite::params![current_id])?;
+        if let Some(row) = rows.next()? {
+            let last_event_id: i64 = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            let canvas: Canvas = bincode::deserialize(&blob).map_err(|_| {
+                rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Blob, Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to deserialize canvas blob")))
+            })?;
+            Ok(Some((last_event_id, canvas)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn fetch_events_conn(conn: &rusqlite::Connection, min_id: i64, max_id: i64) -> Result<Vec<(i64, Change)>, rusqlite::Error> {
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT 
+                e.id, e.event_type_id, e.created_at,
+                p.x, p.y, p.color_hex,
+                r.anchor_type, r.width, r.height,
+                rb.target_event_id
+            FROM events e
+            LEFT JOIN paint_event p ON e.id = p.event_id
+            LEFT JOIN resize_event r ON e.id = r.event_id
+            LEFT JOIN rollback_event rb ON e.id = rb.event_id
+            WHERE e.id > ?1 AND e.id <= ?2
+            ORDER BY e.id ASC
+            "#
+        )?;
+
+        let mut rows = stmt.query(rusqlite::params![min_id, max_id])?;
+        let mut events = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let event_id: i64 = row.get(0)?;
+            let event_type_id: i64 = row.get(1)?;
+            let timestamp: u64 = row.get::<_, i64>(2)? as u64;
+
+            let event = match event_type_id {
+                0 => ChangeEvent::Paint {
+                    x: row.get::<_, i64>(3)? as usize,
+                    y: row.get::<_, i64>(4)? as usize,
+                    color: crate::world::color::Color::from_hex(&row.get::<_, String>(5)?).expect("Failed to parse color hex"),
+                },
+                1 => ChangeEvent::Resize {
+                    anchor: crate::history::change::ResizeAnchor::from_u8(row.get::<_, i64>(6)? as u8),
+                    width: row.get::<_, i64>(7)? as usize,
+                    height: row.get::<_, i64>(8)? as usize,
+                },
+                2 => ChangeEvent::Rollback {
+                    target_event_id: row.get(9)?,
+                },
+                _ => ChangeEvent::Init {
+                    width: crate::env::default_canvas_width(),
+                    height: crate::env::default_canvas_height(),
+                },
+            };
+
+            events.push((event_id, Change { event, timestamp }));
+        }
+
+        Ok(events)
+    }
 
     pub fn open<P: AsRef<std::path::Path>>(db_path: P, snapshot_interval: usize) -> Result<Self, rusqlite::Error> {
         if let Some(parent) = db_path.as_ref().parent() {
