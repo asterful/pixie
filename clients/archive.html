@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixie Place - Archive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #18181b;
+            touch-action: none;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: default;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-white select-none font-sans">
+
+    <!-- Main Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Top UI: Stats & Tools -->
+    <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none z-10">
+        <!-- Left side: Stats -->
+        <div class="flex flex-col gap-2 pointer-events-auto">
+            <!-- Stats Badge -->
+            <div class="bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-lg border border-gray-700 shadow-lg flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="relative flex h-3 w-3">
+                        <span id="ping-indicator-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span id="ping-indicator-dot" class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </span>
+                    <span class="text-sm font-medium text-gray-300">
+                        <span id="client-count">0</span> Online
+                    </span>
+                </div>
+                <div class="h-4 w-px bg-gray-700"></div>
+                <div class="text-xs text-gray-500 font-mono" id="coords">- , -</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-col gap-2 pointer-events-auto">
+            <button id="btn-download" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Download Canvas">
+                <i data-lucide="download" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-grid" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-blue-400" title="Toggle Grid">
+                <i data-lucide="grid" class="w-5 h-5"></i>
+            </button>
+            <div class="h-px bg-gray-700 my-0.5"></div>
+            <button id="btn-zoom-in" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Zoom In (Ctrl +)">
+                <i data-lucide="zoom-in" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-zoom-out" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Zoom Out (Ctrl -)">
+                <i data-lucide="zoom-out" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-center" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors shadow-lg active:scale-95 text-gray-300" title="Reset View (Ctrl 0)">
+                <i data-lucide="focus" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom UI: Timeline Slider & Controls -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pointer-events-none z-10">
+        <div class="bg-gray-900/95 backdrop-blur-md p-4 rounded-xl border border-gray-700 shadow-2xl pointer-events-auto flex flex-col gap-3">
+            <!-- Timeline Info -->
+            <div class="flex justify-between items-center text-xs text-gray-400">
+                <div class="flex gap-4">
+                    <span id="stat-events">Total Events: 0</span>
+                    <span id="stat-chunk">Chunk: --</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="stat-current">Event Index: --</span>
+                </div>
+            </div>
+            
+            <!-- Playback Controls & Slider Row -->
+            <div class="flex items-center gap-3">
+                <!-- Back Step Button -->
+                <button id="btn-prev" class="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700 transition-colors shadow active:scale-95 text-gray-300" title="Previous Event">
+                    <i data-lucide="skip-back" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Play / Pause Button -->
+                <button id="btn-play" class="p-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg border border-blue-500 transition-colors shadow-lg active:scale-95 text-white" title="Play / Pause">
+                    <i id="play-icon" data-lucide="play" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Next Step Button -->
+                <button id="btn-next" class="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-700 transition-colors shadow active:scale-95 text-gray-300" title="Next Event">
+                    <i data-lucide="skip-forward" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Timeline Slider -->
+                <div class="relative flex-1">
+                    <input type="range" id="timeline-slider" min="0" max="100" value="0" disabled
+                        class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer
+                        [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+                        [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg">
+                </div>
+            </div>
+            
+            <!-- Timeline Range Labels -->
+            <div class="flex justify-between text-xs text-gray-500 font-mono">
+                <span id="start-label">0</span>
+                <span id="end-label">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Solid Bulletproof Connection / Loading Overlay with Controls Infographic -->
+    <div id="connection-overlay" class="fixed inset-0 w-screen h-screen bg-[#18181b] flex items-center justify-center z-[9999] transition-opacity duration-500 opacity-100 pointer-events-auto">
+        <div class="text-center max-w-sm px-6">
+            <div class="mb-4 flex justify-center">
+                <i data-lucide="loader-2" class="w-10 h-10 text-white animate-spin"></i>
+            </div>
+            <h2 id="loading-title" class="text-xl font-bold text-white tracking-wide mb-6">Initializing Archive...</h2>
+            
+            <!-- Controls Guide Infographic -->
+            <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 text-left shadow-2xl backdrop-blur-md">
+                <h3 class="text-xs font-semibold tracking-wider text-gray-400 uppercase mb-3 text-center border-b border-gray-800 pb-2">Navigation & Controls</h3>
+                <div class="space-y-3 text-sm">
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Right / Left Click</span>
+                        <span class="text-gray-300 text-right text-xs">Pan canvas</span>
+                    </div>
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono text-white shadow shrink-0">Ctrl + / - / 0</span>
+                        <span class="text-gray-300 text-right text-xs">Zoom in / out / Reset view</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const WS_URL = 'ws://localhost:8080';
+
+        // --- State & Client Cache ---
+        const state = {
+            ws: null,
+            isConnected: false,
+            isReady: false,
+            board: { width: 128, height: 128 },
+            view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
+            drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
+            showGrid: true,
+            hover: { x: -1, y: -1 },
+            totalEvents: 0,
+            lastTargetIndex: 0,
+            lastChunkMetadata: null,
+            lastLookahead: 'Full'
+        };
+
+        // Playback state
+        const playback = {
+            isPlaying: false,
+            timer: null,
+            fps: 48
+        };
+
+        // Hash Maps for Client-Side Caching
+        const historyCache = {
+            snapshots: new Map(), // Map<number, CanvasObj>
+            events: new Map()     // Map<number, Change>
+        };
+
+        let pingInterval = null;
+        let sliderTimeout = null;
+
+        // --- DOM Elements ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        
+        const bufferCanvas = document.createElement('canvas');
+        const bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
+
+        const ui = {
+            clientCount: document.getElementById('client-count'),
+            coords: document.getElementById('coords'),
+            pingDot: document.getElementById('ping-indicator-dot'),
+            overlay: document.getElementById('connection-overlay'),
+            loadingTitle: document.getElementById('loading-title'),
+            btnGrid: document.getElementById('btn-grid'),
+            btnCenter: document.getElementById('btn-center'),
+            btnZoomIn: document.getElementById('btn-zoom-in'),
+            btnZoomOut: document.getElementById('btn-zoom-out'),
+            btnDownload: document.getElementById('btn-download'),
+            statEvents: document.getElementById('stat-events'),
+            statChunk: document.getElementById('stat-chunk'),
+            statCurrent: document.getElementById('stat-current'),
+            timelineSlider: document.getElementById('timeline-slider'),
+            startLabel: document.getElementById('start-label'),
+            endLabel: document.getElementById('end-label')
+        };
+
+        const playbackUI = {
+            btnPrev: document.getElementById('btn-prev'),
+            btnNext: document.getElementById('btn-next'),
+            btnPlay: document.getElementById('btn-play'),
+            playIcon: document.getElementById('play-icon')
+        };
+
+        // --- Initialization ---
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            setupInput();
+            setupToolbar();
+            setupTimelineSlider();
+            setupPlaybackControls();
+            connectWebSocket();
+            
+            updateZoomUI();
+            requestAnimationFrame(renderLoop);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (state.isReady) {
+                renderScene();
+            }
+        }
+
+        function handleVisibilityChange() {
+            if (document.visibilityState === 'visible' && state.isReady) {
+                renderScene();
+            }
+        }
+
+        function updateZoomUI() {}
+
+        // --- Helpers ---
+        function hexToRgb(hex) {
+            const num = parseInt(hex.replace('#', ''), 16);
+            return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+        }
+
+        // --- Toolbar & UI ---
+        function setupToolbar() {
+            ui.btnGrid.onclick = () => {
+                state.showGrid = !state.showGrid;
+                ui.btnGrid.classList.toggle('text-blue-400', state.showGrid);
+                ui.btnGrid.classList.toggle('text-gray-400', !state.showGrid);
+            };
+
+            ui.btnCenter.onclick = centerView;
+            ui.btnZoomIn.onclick = () => zoomStep(1.25);
+            ui.btnZoomOut.onclick = () => zoomStep(1 / 1.25);
+            ui.btnDownload.onclick = downloadCanvas;
+        }
+
+        function setupTimelineSlider() {
+            ui.timelineSlider.addEventListener('input', (e) => {
+                stopPlayback();
+                const targetIndex = parseInt(e.target.value, 10);
+                ui.statCurrent.innerText = `Event Index: ${targetIndex}`;
+                
+                if (sliderTimeout) clearTimeout(sliderTimeout);
+                sliderTimeout = setTimeout(() => {
+                    handleSliderChange(targetIndex);
+                }, 100);
+            });
+        }
+
+        function setupPlaybackControls() {
+            playbackUI.btnPrev.onclick = () => {
+                stopPlayback();
+                const current = parseInt(ui.timelineSlider.value, 10);
+                const target = Math.max(0, current - 1);
+                jumpToEvent(target);
+            };
+
+            playbackUI.btnNext.onclick = () => {
+                stopPlayback();
+                const current = parseInt(ui.timelineSlider.value, 10);
+                const max = parseInt(ui.timelineSlider.max, 10);
+                const target = Math.min(max, current + 1);
+                jumpToEvent(target);
+            };
+
+            playbackUI.btnPlay.onclick = togglePlay;
+        }
+
+        function togglePlay() {
+            if (playback.isPlaying) {
+                stopPlayback();
+            } else {
+                startPlayback();
+            }
+        }
+
+        function startPlayback() {
+            const current = parseInt(ui.timelineSlider.value, 10);
+            const max = parseInt(ui.timelineSlider.max, 10);
+            
+            if (current >= max) {
+                jumpToEvent(0, false);
+            }
+
+            playback.isPlaying = true;
+            updatePlayButtonIcon();
+
+            playback.timer = setInterval(() => {
+                const cur = parseInt(ui.timelineSlider.value, 10);
+                const maximum = parseInt(ui.timelineSlider.max, 10);
+
+                if (cur >= maximum) {
+                    stopPlayback();
+                    return;
+                }
+
+                jumpToEvent(cur + 1, false);
+            }, 1000 / playback.fps);
+        }
+
+        function stopPlayback() {
+            playback.isPlaying = false;
+            if (playback.timer) {
+                clearInterval(playback.timer);
+                playback.timer = null;
+            }
+            updatePlayButtonIcon();
+        }
+
+        function updatePlayButtonIcon() {
+            playbackUI.playIcon.setAttribute('data-lucide', playback.isPlaying ? 'pause' : 'play');
+            lucide.createIcons();
+        }
+
+        function jumpToEvent(targetIndex, debounce = true) {
+            ui.timelineSlider.value = targetIndex;
+            ui.statCurrent.innerText = `Event Index: ${targetIndex}`;
+
+            if (debounce) {
+                if (sliderTimeout) clearTimeout(sliderTimeout);
+                sliderTimeout = setTimeout(() => {
+                    handleSliderChange(targetIndex);
+                }, 100);
+            } else {
+                handleSliderChange(targetIndex);
+            }
+        }
+
+        function handleSliderChange(targetIndex) {
+            state.lastTargetIndex = targetIndex;
+            ui.statCurrent.innerText = `Event Index: ${targetIndex}`;
+
+            // 1. Check Cache for Requested Event
+            if (!tryResolveLocally(targetIndex)) {
+                // If the requested event is NOT cached: Perform a Full Fetch for this event.
+                requestHistory(targetIndex, 'Full');
+                return;
+            }
+
+            // If the requested event IS cached: Do not fetch the current event; instead, proceed to run the Prefetch Checks below.
+            let bestLowerSnapId = -1;
+            let bestUpperSnapId = Infinity;
+
+            for (const [snapId] of historyCache.snapshots.entries()) {
+                if (snapId <= targetIndex && snapId > bestLowerSnapId) {
+                    bestLowerSnapId = snapId;
+                }
+                if (snapId > targetIndex && snapId < bestUpperSnapId) {
+                    bestUpperSnapId = snapId;
+                }
+            }
+
+            // 2. Backward Prefetch Check
+            if (bestLowerSnapId !== -1) {
+                const backwardEventId = bestLowerSnapId - 1;
+                if (backwardEventId >= 0) {
+                    const isBackwardCached = historyCache.snapshots.has(backwardEventId) || historyCache.events.has(backwardEventId);
+                    if (!isBackwardCached) {
+                        requestHistory(targetIndex, 'Backward');
+                        return;
+                    }
+                }
+            }
+
+            // 3. Forward Prefetch Check
+            if (bestUpperSnapId !== Infinity) {
+                const forwardEventId = bestUpperSnapId + 1;
+                const isForwardCached = historyCache.snapshots.has(forwardEventId) || historyCache.events.has(forwardEventId);
+                if (!isForwardCached) {
+                    requestHistory(targetIndex, 'Forward');
+                    return;
+                }
+            }
+        }
+
+        function tryResolveLocally(targetIndex) {
+            let bestSnapshotId = -1;
+            let bestCanvas = null;
+
+            for (const [snapId, canvasObj] of historyCache.snapshots.entries()) {
+                if (snapId <= targetIndex && snapId > bestSnapshotId) {
+                    bestSnapshotId = snapId;
+                    bestCanvas = canvasObj;
+                }
+            }
+
+            if (bestSnapshotId === -1) return false;
+
+            const eventsToApply = [];
+            for (let id = bestSnapshotId + 1; id <= targetIndex; id++) {
+                if (!historyCache.events.has(id)) {
+                    return false; 
+                }
+                eventsToApply.push(historyCache.events.get(id));
+            }
+
+            reconstructAndRender(bestCanvas, bestSnapshotId, eventsToApply, targetIndex);
+            return true;
+        }
+
+        function reconstructAndRender(baseCanvas, snapId, events, targetIndex) {
+            const clonedCanvas = {
+                width: baseCanvas.width,
+                height: baseCanvas.height,
+                pixels: [...baseCanvas.pixels],
+                palette: baseCanvas.palette
+            };
+
+            for (const changeObj of events) {
+                const eventData = (changeObj && changeObj.event !== undefined) ? changeObj.event : changeObj;
+                applyEventToCanvas(clonedCanvas, eventData);
+            }
+
+            ui.statChunk.innerText = `Local Cache (Snap #${snapId})`;
+            renderCanvasFromSnapshot(clonedCanvas, false); 
+            state.isReady = true;
+            hideLoadingOverlay();
+            renderScene();
+        }
+
+        function applyEventToCanvas(canvasData, event) {
+            if (!event) return;
+            const eventType = event.type || Object.keys(event)[0];
+
+            switch (eventType) {
+                case 'Paint': {
+                    const p = event.Paint || event;
+                    const { x, y, color } = p;
+                    if (x >= 0 && x < canvasData.width && y >= 0 && y < canvasData.height) {
+                        const hex = typeof color === 'string' ? color : (color?.hex || '#000000');
+                        let colorIdx = canvasData.palette.indices ? canvasData.palette.indices[hex] : canvasData.palette.colors.indexOf(hex);
+                        if (colorIdx === undefined || colorIdx === -1) {
+                            colorIdx = 0;
+                        }
+                        canvasData.pixels[y * canvasData.width + x] = colorIdx;
+                    }
+                    break;
+                }
+                case 'Resize': {
+                    break;
+                }
+                case 'Init': {
+                    const init = event.Init || event;
+                    canvasData.width = init.width;
+                    canvasData.height = init.height;
+                    canvasData.pixels = new Array(init.width * init.height).fill(0);
+                    break;
+                }
+            }
+        }
+
+        function requestHistory(targetIndex, lookahead) {
+            if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+            state.lastLookahead = lookahead;
+            if (lookahead === 'Full') {
+                ui.loadingTitle.innerText = `Loading Event #${targetIndex} (${lookahead})...`;
+                showLoadingOverlay();
+            }
+            state.ws.send(JSON.stringify({
+                type: 'get_history',
+                target_index: targetIndex,
+                lookahead: lookahead
+            }));
+        }
+
+        function downloadCanvas() {
+            if (!state.isReady) return;
+            const scale = 10;
+            const downloadCanvas = document.createElement('canvas');
+            downloadCanvas.width = state.board.width * scale;
+            downloadCanvas.height = state.board.height * scale;
+            const downloadCtx = downloadCanvas.getContext('2d');
+            
+            downloadCtx.imageSmoothingEnabled = false;
+            downloadCtx.drawImage(bufferCanvas, 0, 0, state.board.width, state.board.height, 0, 0, state.board.width * scale, state.board.height * scale);
+            
+            downloadCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pixie-archive-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        function centerView() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            state.view.zoom = Math.min(canvas.width, canvas.height) / Math.max(state.board.width, state.board.height) * 0.9;
+            if(state.view.zoom < 1) state.view.zoom = 2;
+            state.view.x = centerX - (state.board.width * state.view.zoom) / 2;
+            state.view.y = centerY - (state.board.height * state.view.zoom) / 2;
+            updateZoomUI();
+        }
+
+        function zoomStep(multiplier) {
+            if (!state.isReady) return;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const worldX = (centerX - state.view.x) / state.view.zoom;
+            const worldY = (centerY - state.view.y) / state.view.zoom;
+            
+            let newZoom = state.view.zoom * multiplier;
+            newZoom = Math.max(state.view.minZoom, Math.min(newZoom, state.view.maxZoom));
+            
+            state.view.x = centerX - worldX * newZoom;
+            state.view.y = centerY - worldY * newZoom;
+            state.view.zoom = newZoom;
+            updateZoomUI();
+        }
+
+        // --- WebSocket Logic ---
+        function connectWebSocket() {
+            ui.loadingTitle.innerText = "Initializing Archive...";
+            showLoadingOverlay();
+
+            state.ws = new WebSocket(WS_URL);
+
+            state.ws.onopen = () => {
+                console.log('[WS] Connected');
+                state.isConnected = true;
+                ui.pingDot.className = "relative inline-flex rounded-full h-3 w-3 bg-green-500";
+                
+                state.ws.send(JSON.stringify({ type: 'get_event_count' }));
+
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                        state.ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 5000);
+            };
+
+            state.ws.onclose = () => {
+                console.log('[WS] Disconnected');
+                stopPlayback();
+                state.isConnected = false;
+                state.isReady = false;
+                ui.pingDot.className = "relative inline-flex rounded-full h-3 w-3 bg-red-500";
+                canvas.style.cursor = 'default';
+                ui.loadingTitle.innerText = "Connecting to Server...";
+                showLoadingOverlay();
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            state.ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+        }
+
+        function showLoadingOverlay() {
+            ui.overlay.classList.remove('opacity-0', 'pointer-events-none');
+            ui.overlay.classList.add('opacity-100', 'pointer-events-auto');
+        }
+
+        function hideLoadingOverlay() {
+            ui.overlay.classList.remove('opacity-100', 'pointer-events-auto');
+            ui.overlay.classList.add('opacity-0', 'pointer-events-none');
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'event_count':
+                    state.totalEvents = msg.total;
+                    ui.statEvents.innerText = `Total Events: ${msg.total}`;
+                    ui.endLabel.innerText = msg.total > 0 ? msg.total - 1 : 0;
+                    if (msg.total > 0) {
+                        ui.timelineSlider.min = 0;
+                        ui.timelineSlider.max = msg.total - 1;
+                        ui.timelineSlider.value = msg.total - 1;
+                        state.lastTargetIndex = msg.total - 1;
+                        ui.statCurrent.innerText = `Event Index: ${msg.total - 1}`;
+                        ui.timelineSlider.disabled = false;
+                        
+                        state.lastLookahead = 'Full';
+                        requestHistory(msg.total - 1, 'Full');
+                    } else {
+                        ui.timelineSlider.disabled = true;
+                        ui.statCurrent.innerText = `Event Index: --`;
+                        hideLoadingOverlay();
+                        state.isReady = true;
+                    }
+                    break;
+                case 'history_chunk':
+                    ingestHistoryChunk(msg.chunk);
+                    break;
+                case 'pong': 
+                    ui.clientCount.innerText = msg.clients; 
+                    break;
+            }
+        }
+
+        function ingestHistoryChunk(chunk) {
+            state.lastChunkMetadata = {
+                prev: chunk.prev_snapshot,
+                current: chunk.current_snapshot,
+                next: chunk.next_snapshot,
+                next_next: chunk.next_next_snapshot
+            };
+
+            const snapshotsList = [
+                chunk.prev_snapshot,
+                chunk.current_snapshot,
+                chunk.next_snapshot,
+                chunk.next_next_snapshot
+            ];
+
+            for (const snapTuple of snapshotsList) {
+                if (snapTuple) {
+                    const [eventId, canvasObj] = snapTuple;
+                    historyCache.snapshots.set(eventId, canvasObj);
+                }
+            }
+
+            if (chunk.events) {
+                for (const [eventId, changeObj] of chunk.events) {
+                    historyCache.events.set(eventId, changeObj);
+                }
+            }
+
+            if (state.lastLookahead === 'Full' || !state.isReady) {
+                let activeSnapshot = chunk.current_snapshot || chunk.prev_snapshot || chunk.next_snapshot || chunk.next_next_snapshot;
+                if (activeSnapshot) {
+                    const [eventId, canvasObj] = activeSnapshot;
+                    ui.statChunk.innerText = `Snapshot ID: ${eventId}`;
+                    renderCanvasFromSnapshot(canvasObj, true);
+                }
+                state.isReady = true;
+                hideLoadingOverlay();
+                renderScene();
+            } else {
+                // Background prefetch (Backward or Forward): update cache silently without disrupting view
+                tryResolveLocally(state.lastTargetIndex);
+            }
+        }
+
+        function renderCanvasFromSnapshot(canvasData, resetView = true) {
+            state.board.width = canvasData.width;
+            state.board.height = canvasData.height;
+            bufferCanvas.width = canvasData.width;
+            bufferCanvas.height = canvasData.height;
+
+            const imgData = bufferCtx.createImageData(canvasData.width, canvasData.height);
+            const data = imgData.data;
+
+            const paletteColors = canvasData.palette.colors || [];
+            const parsedPalette = paletteColors.map(hex => hexToRgb(hex));
+
+            for (let i = 0; i < canvasData.pixels.length; i++) {
+                const colorIndex = canvasData.pixels[i];
+                const rgb = parsedPalette[colorIndex] || [255, 255, 255];
+                const ptr = i * 4;
+                data[ptr] = rgb[0];
+                data[ptr + 1] = rgb[1];
+                data[ptr + 2] = rgb[2];
+                data[ptr + 3] = 255;
+            }
+
+            bufferCtx.putImageData(imgData, 0, 0);
+            
+            if (resetView) {
+                centerView();
+            }
+        }
+
+        // --- Input Handling ---
+        function setupInput() {
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
+            canvas.addEventListener('mousedown', onPointerDown);
+            window.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', onPointerUp);
+            canvas.addEventListener('wheel', onWheel, { passive: false });
+            
+            window.addEventListener('keydown', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+                        e.preventDefault();
+                        zoomStep(1.25);
+                    } else if (e.key === '-' || e.code === 'NumpadSubtract') {
+                        e.preventDefault();
+                        zoomStep(1 / 1.25);
+                    } else if (e.key === '0') {
+                        e.preventDefault();
+                        centerView();
+                    }
+                }
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                state.hover.x = -1;
+                state.hover.y = -1;
+                ui.coords.innerText = `- , -`;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                if(e.touches.length === 1) onPointerDown(e.touches[0]);
+            }, { passive: false });
+            
+            window.addEventListener('touchmove', (e) => {
+                if(e.touches.length === 1) onPointerMove(e.touches[0]);
+                e.preventDefault();
+            }, { passive: false });
+            
+            window.addEventListener('touchend', onPointerUp);
+        }
+
+        function onPointerDown(e) {
+            if (!state.isReady) return;
+            state.drag.isDragging = true;
+            state.drag.startX = e.clientX;
+            state.drag.startY = e.clientY;
+            state.drag.lastX = e.clientX;
+            state.drag.lastY = e.clientY;
+            state.drag.moved = false;
+            canvas.style.cursor = 'grabbing';
+        }
+
+        function onPointerMove(e) {
+            if (!state.isReady) {
+                canvas.style.cursor = 'default';
+                return;
+            }
+
+            if (state.drag.isDragging) {
+                canvas.style.cursor = 'grabbing';
+                const dx = e.clientX - state.drag.lastX;
+                const dy = e.clientY - state.drag.lastY;
+                if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.drag.moved = true;
+                state.view.x += dx;
+                state.view.y += dy;
+                state.drag.lastX = e.clientX;
+                state.drag.lastY = e.clientY;
+                return;
+            }
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const boardX = Math.floor((mouseX - state.view.x) / state.view.zoom);
+            const boardY = Math.floor((mouseY - state.view.y) / state.view.zoom);
+
+            if (boardX >= 0 && boardX < state.board.width && boardY >= 0 && boardY < state.board.height) {
+                state.hover.x = boardX;
+                state.hover.y = boardY;
+                ui.coords.innerText = `${boardX}, ${boardY}`;
+                canvas.style.cursor = 'crosshair';
+            } else {
+                state.hover.x = -1;
+                state.hover.y = -1;
+                ui.coords.innerText = `- , -`;
+                canvas.style.cursor = 'default';
+            }
+        }
+
+        function onPointerUp(e) {
+            if (!state.isReady) return;
+
+            if (state.drag.isDragging) {
+                state.drag.isDragging = false;
+                canvas.style.cursor = 'crosshair';
+            }
+        }
+
+        function onWheel(e) {
+            if (!state.isReady) return;
+            e.preventDefault();
+            const zoomIntensity = 0.05;
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            const worldX = (mouseX - state.view.x) / state.view.zoom;
+            const worldY = (mouseY - state.view.y) / state.view.zoom;
+            const delta = e.deltaY < 0 ? 1 + zoomIntensity : 1 / (1 + zoomIntensity);
+            let newZoom = state.view.zoom * delta;
+            newZoom = Math.max(state.view.minZoom, Math.min(newZoom, state.view.maxZoom));
+            state.view.x = mouseX - worldX * newZoom;
+            state.view.y = mouseY - worldY * newZoom;
+            state.view.zoom = newZoom;
+            updateZoomUI();
+        }
+
+        function renderScene() {
+            ctx.fillStyle = '#18181b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!state.isReady) return;
+
+            ctx.imageSmoothingEnabled = false;
+            ctx.setTransform(state.view.zoom, 0, 0, state.view.zoom, state.view.x, state.view.y);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, state.board.width, state.board.height);
+            ctx.drawImage(bufferCanvas, 0, 0);
+
+            if (state.showGrid && state.view.zoom > 4) {
+                ctx.lineWidth = 1 / state.view.zoom;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.beginPath();
+                for (let x = 0; x <= state.board.width; x++) {
+                    ctx.moveTo(x, 0); ctx.lineTo(x, state.board.height);
+                }
+                for (let y = 0; y <= state.board.height; y++) {
+                    ctx.moveTo(0, y); ctx.lineTo(state.board.width, y);
+                }
+                ctx.stroke();
+            }
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+        }
+
+        function renderLoop() {
+            renderScene();
+            requestAnimationFrame(renderLoop);
+        }
+
+        init();
+    </script>
+</body>
+</html>
