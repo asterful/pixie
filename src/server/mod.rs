@@ -370,6 +370,46 @@ impl Server {
                     }
                 }
             }
+            ClientMessage::GetEventCount => {
+                let count_result = {
+                    let world_lock = world.read().await;
+                    world_lock.history.db_event_count()
+                };
+
+                match count_result {
+                    Ok(total) => {
+                        let msg = ServerMessage::EventCount { total };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if let Some(client_info) = clients.read().await.get(&sender) {
+                                client_info.sender.send(Message::Text(json)).ok();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to fetch event count for {}: {:?}", sender, e);
+                    }
+                }
+            }
+            ClientMessage::GetHistory { target_index, lookahead } => {
+                let chunk_result = {
+                    let world_lock = world.read().await;
+                    world_lock.history.get_history_chunk(target_index as u64, lookahead)
+                };
+
+                match chunk_result {
+                    Ok(chunk) => {
+                        let msg = ServerMessage::HistoryChunk { chunk };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if let Some(client_info) = clients.read().await.get(&sender) {
+                                client_info.sender.send(Message::Text(json)).ok();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to fetch history chunk for {}: {:?}", sender, e);
+                    }
+                }
+            }
         }
     }
 

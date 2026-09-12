@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::history::change::ResizeAnchor;
+use crate::history::{HistoryChunk, HistoryLookahead, change::ResizeAnchor};
 
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +16,15 @@ pub enum ClientMessage {
     
     #[serde(rename = "rollback")]
     Rollback { target_index: usize },
+
+    #[serde(rename = "get_event_count")]
+    GetEventCount,
+
+    #[serde(rename = "get_history")]
+    GetHistory { 
+        target_index: usize, 
+        lookahead: HistoryLookahead,
+    },
 }
 
 /// Messages sent from server to client
@@ -41,5 +50,15 @@ pub enum ServerMessage {
     #[serde(rename = "pong")]
     Pong {
         clients: usize,
+    },
+
+    #[serde(rename = "event_count")]
+    EventCount {
+        total: usize,
+    },
+
+    #[serde(rename = "history_chunk")]
+    HistoryChunk {
+        chunk: HistoryChunk,
     },
 }

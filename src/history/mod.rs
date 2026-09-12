@@ -2,6 +2,7 @@ pub mod change;
 
 use std::sync::Mutex;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 use crate::history::change::ChangeEvent;
 use crate::world::canvas::Canvas;
@@ -31,6 +32,7 @@ pub struct History {
     event_count: std::sync::atomic::AtomicUsize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryChunk {
     pub prev_snapshot: Option<(i64, Canvas)>,
     pub current_snapshot: Option<(i64, Canvas)>,
@@ -39,6 +41,8 @@ pub struct HistoryChunk {
     pub events: Vec<(i64, Change)>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum HistoryLookahead {
     Full,
     Forward,
