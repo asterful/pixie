@@ -1,8 +1,8 @@
-use Pixie::history::change::{ChangeEvent, ResizeAnchor};
-use Pixie::history::{History, HistoryChunk, HistoryLookahead};
-use Pixie::world::canvas::Canvas;
-use Pixie::world::color::Color;
-use Pixie::world::World;
+use pixie::history::change::{ChangeEvent, ResizeAnchor};
+use pixie::history::{History, HistoryChunk, HistoryLookahead};
+use pixie::world::canvas::Canvas;
+use pixie::world::color::Color;
+use pixie::world::World;
 use std::path::PathBuf;
 use std::sync::Once;
 use std::time::{Duration, Instant, SystemTime};
@@ -11,7 +11,7 @@ static INIT: Once = Once::new();
 
 fn setup_large_test_world(test_name: &str, total_events: usize) -> (World, PathBuf) {
     INIT.call_once(|| {
-        let _ = Pixie::env::init();
+        let _ = pixie::env::init();
     });
 
     let unique_id = SystemTime::now()
@@ -53,7 +53,7 @@ fn setup_large_test_world(test_name: &str, total_events: usize) -> (World, PathB
                 color: green.clone(),
             }
         };
-        world.apply_event(change);
+        let _ = world.apply_event(change);
     }
 
     let expected_rows = (total_events + 1) as i64;
