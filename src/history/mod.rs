@@ -12,10 +12,12 @@ use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Debug)]
 pub enum RollbackError {
+    #[allow(dead_code)]
     IndexOutOfBounds {
         target: usize,
         max: usize,
     },
+    #[allow(dead_code)]
     Database(rusqlite::Error),
 }
 
