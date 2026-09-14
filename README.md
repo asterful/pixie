@@ -2,38 +2,33 @@
 
 > A persistent, real-time pixel canvas with an event-sourced archive.
 
-Pixie is a small collaborative canvas server built in Rust. Clients connect over WebSocket, paint together on a shared board, and receive updates as they happen. Every change is recorded in SQLite, allowing the included archive client to scrub through the canvas history with snapshot-assisted replay.
+Pixie is a small collaborative canvas server built in Rust. Clients connect over WebSocket, paint together on a shared board, and receive updates as they happen. Every change is recorded in SQLite, allowing the included archive client to scrub through the canvas history with snapshot-assisted replay. 🎨
 
 The project includes two browser clients:
 
-- **Live canvas** - paint, pan, zoom, choose colors, download the board, and watch other clients work.
-- **Archive viewer** - browse event history, move through snapshots, and play the canvas timeline back.
+- 🖌️ **Live canvas** - paint, pan, zoom, choose colors, download the board, and watch other clients work.
+- ⏪ **Archive viewer** - browse event history, move through snapshots, and play the canvas timeline back.
 
 ## Highlights
 
 | Capability | What Pixie provides |
 | --- | --- |
-| Real-time collaboration | WebSocket connections with broadcast pixel updates |
-| Durable state | SQLite event log with WAL mode and background writes |
-| Fast reconstruction | Periodic canvas snapshots plus event replay |
-| History browsing | Forward, backward, or full lookahead chunks for timeline clients |
-| Admin controls | Authenticated resize and destructive rollback operations |
-| Resilient clients | Full board initialization on connect and after structural changes |
-| Lightweight deployment | A single Rust binary or Docker image |
+| ⚡ Real-time collaboration | WebSocket connections with broadcast pixel updates |
+| 💾 Durable state | SQLite event log with WAL mode and background writes |
+| 🚀 Fast reconstruction | Periodic canvas snapshots plus event replay |
+| 🕰️ History browsing | Forward, backward, or full lookahead chunks for timeline clients |
+| 🔐 Admin controls | Authenticated resize and destructive rollback operations |
+| 🧱 Resilient clients | Full board initialization on connect and after structural changes |
+| 📦 Lightweight deployment | A single Rust binary or Docker image |
 
 ## How It Fits Together
 
-```mermaid
-flowchart LR
-    Live[Live canvas client] -->|WebSocket JSON| Server[Pixie server]
-    Archive[Archive viewer] -->|WebSocket JSON| Server
-    Server --> World[World state]
-    World --> Canvas[Canvas and palette]
-    World --> History[History service]
-    History --> SQLite[(SQLite database)]
-```
+The server starts on `0.0.0.0:8080` and coordinates the whole pixel party:
 
-The server starts on `0.0.0.0:8080`. A newly connected client receives an `init` message containing the current dimensions, palette, and board. Paint operations are validated, applied to memory, recorded to history, and broadcast to every connected client.
+1. 🌐 A client connects over WebSocket and receives the current canvas, dimensions, and palette.
+2. ✅ Paint operations are validated before they touch the in-memory world.
+3. 📡 Valid changes are recorded in SQLite and broadcast to every connected client.
+4. 🔎 Snapshots and event replay let the archive viewer rebuild and scrub through the canvas history.
 
 ## Quick Start
 
