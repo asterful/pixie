@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixie Place - History Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            touch-action: none;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .spinner {
+            width: 64px;
+            height: 64px;
+            border: 4px solid #374151;
+            border-bottom-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="text-white select-none font-sans">
+
+    <div id="loading" class="loading-screen">
+        <div class="spinner mb-4"></div>
+        <div class="text-2xl font-bold mb-2">Loading History Demo...</div>
+        <div id="loading-text" class="text-sm text-gray-400">Initializing...</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="absolute top-4 left-4 bg-gray-900/90 backdrop-blur-md px-4 py-2 rounded-lg border border-gray-700">
+        <div class="text-xs text-gray-500 font-mono" id="coords">0, 0</div>
+    </div>
+
+    <div class="absolute top-4 right-4 flex flex-col gap-2">
+        <button id="btn-download" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors text-gray-300" title="Download Canvas">
+            <i data-lucide="download" class="w-5 h-5"></i>
+        </button>
+        <button id="btn-grid" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors text-gray-400">
+            <i data-lucide="grid" class="w-5 h-5"></i>
+        </button>
+        <button id="btn-center" class="p-2 bg-gray-900/90 backdrop-blur-md rounded-lg border border-gray-700 hover:bg-gray-800 transition-colors text-gray-300">
+            <i data-lucide="focus" class="w-5 h-5"></i>
+        </button>
+    </div>
+
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4">
+        <div class="bg-gray-900/90 backdrop-blur-md p-4 rounded-xl border border-gray-700">
+            <div class="flex justify-between items-center mb-3 text-xs text-gray-400">
+                <div class="flex gap-4">
+                    <span id="stat-segments">Segments: 0</span>
+                    <span id="stat-changes">Changes: 0</span>
+                    <span id="stat-palette">Palette: 0</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="mode-toggle" disabled
+                        class="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                        title="Toggle between timestamp and linear mode">
+                        <i data-lucide="list" class="w-3 h-3"></i>
+                        <span id="mode-label">Linear</span>
+                    </button>
+                    <span id="stat-current">--</span>
+                </div>
+            </div>
+            
+            <div class="relative">
+                <input type="range" id="timeline-slider" min="0" max="100" value="100" disabled
+                    class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer
+                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+                    [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-lg">
+            </div>
+            
+            <div class="flex justify-between mt-2 text-xs text-gray-500 font-mono">
+                <span id="start-time">--</span>
+                <span id="end-time">--</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        console.log('🎨 History Demo Starting...');
+        lucide.createIcons();
+        
+        const state = {
+            board: { width: 100, height: 100 },
+            view: { x: 0, y: 0, zoom: 4, minZoom: 0.5, maxZoom: 40 },
+            drag: { isDragging: false, lastX: 0, lastY: 0, startX: 0, startY: 0, moved: false },
+            showGrid: false,
+            hover: { x: -1, y: -1 },
+            timeline: { 
+                segments: [], 
+                palette: [], 
+                allChanges: [],
+                mode: 'linear', // 'timestamp' or 'linear'
+                minTimestamp: 0,
+                maxTimestamp: 0,
+                currentBoard: null // Cache for incremental updates
+            }
+        };
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const bufferCanvas = document.createElement('canvas');
+        const bufferCtx = bufferCanvas.getContext('2d');
+
+        const ui = {
+            loading: document.getElementById('loading'),
+            loadingText: document.getElementById('loading-text'),
+            coords: document.getElementById('coords'),
+            btnDownload: document.getElementById('btn-download'),
+            btnGrid: document.getElementById('btn-grid'),
+            btnCenter: document.getElementById('btn-center'),
+            slider: document.getElementById('timeline-slider'),
+            modeToggle: document.getElementById('mode-toggle'),
+            modeLabel: document.getElementById('mode-label'),
+            startTime: document.getElementById('start-time'),
+            endTime: document.getElementById('end-time'),
+            statSegments: document.getElementById('stat-segments'),
+            statChanges: document.getElementById('stat-changes'),
+            statPalette: document.getElementById('stat-palette'),
+            statCurrent: document.getElementById('stat-current')
+        };
+
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            setupUIHandlers();
+            setupCanvasHandlers();
+            requestAnimationFrame(render);
+            loadArchive();
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function setupUIHandlers() {
+            ui.btnDownload.onclick = downloadCanvas;
+            ui.btnGrid.onclick = () => {
+                state.showGrid = !state.showGrid;
+                ui.btnGrid.classList.toggle('text-blue-400', state.showGrid);
+                ui.btnGrid.classList.toggle('text-gray-400', !state.showGrid);
+            };
+            ui.btnCenter.onclick = centerView;
+            ui.modeToggle.onclick = toggleTimelineMode;
+            
+            ui.slider.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                if (state.timeline.mode === 'timestamp') {
+                    renderAtTimestamp(value);
+                } else {
+                    renderAtChangeIndex(value);
+                }
+            });
+        }
+
+        function setupCanvasHandlers() {
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('wheel', onWheel, { passive: false });
+        }
+
+        function onMouseDown(e) {
+            state.drag.isDragging = true;
+            state.drag.startX = e.clientX;
+            state.drag.startY = e.clientY;
+            state.drag.lastX = e.clientX;
+            state.drag.lastY = e.clientY;
+            state.drag.moved = false;
+        }
+
+        function onMouseMove(e) {
+            if (state.drag.isDragging) {
+                const dx = e.clientX - state.drag.lastX;
+                const dy = e.clientY - state.drag.lastY;
+                state.view.x += dx;
+                state.view.y += dy;
+                state.drag.lastX = e.clientX;
+                state.drag.lastY = e.clientY;
+                if (Math.abs(e.clientX - state.drag.startX) > 5 || Math.abs(e.clientY - state.drag.startY) > 5) {
+                    state.drag.moved = true;
+                }
+            }
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = (e.clientX - rect.left - state.view.x) / state.view.zoom;
+            const mouseY = (e.clientY - rect.top - state.view.y) / state.view.zoom;
+            const gridX = Math.floor(mouseX);
+            const gridY = Math.floor(mouseY);
+
+            if (gridX >= 0 && gridX < state.board.width && gridY >= 0 && gridY < state.board.height) {
+                state.hover.x = gridX;
+                state.hover.y = gridY;
+                ui.coords.textContent = `${gridX}, ${gridY}`;
+            } else {
+                state.hover.x = -1;
+                state.hover.y = -1;
+                ui.coords.textContent = '--';
+            }
+        }
+
+        function onMouseUp(e) {
+            state.drag.isDragging = false;
+        }
+
+        function onWheel(e) {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const worldX = (mouseX - state.view.x) / state.view.zoom;
+            const worldY = (mouseY - state.view.y) / state.view.zoom;
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            const newZoom = Math.max(state.view.minZoom, Math.min(state.view.maxZoom, state.view.zoom * delta));
+            state.view.x = mouseX - worldX * newZoom;
+            state.view.y = mouseY - worldY * newZoom;
+            state.view.zoom = newZoom;
+        }
+
+        function centerView() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            state.view.zoom = Math.min(canvas.width, canvas.height) / Math.max(state.board.width, state.board.height) * 0.5;
+            state.view.x = centerX - (state.board.width * state.view.zoom) / 2;
+            state.view.y = centerY - (state.board.height * state.view.zoom) / 2;
+        }
+
+        function downloadCanvas() {
+            const scale = 10;
+            const downloadCanvas = document.createElement('canvas');
+            downloadCanvas.width = state.board.width * scale;
+            downloadCanvas.height = state.board.height * scale;
+            const downloadCtx = downloadCanvas.getContext('2d');
+            
+            // Use nearest neighbor scaling
+            downloadCtx.imageSmoothingEnabled = false;
+            downloadCtx.drawImage(bufferCanvas, 0, 0, state.board.width, state.board.height, 0, 0, state.board.width * scale, state.board.height * scale);
+            
+            downloadCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `pixie-place-history-demo-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        function showLoading(text) {
+            ui.loading.style.display = 'flex';
+            ui.loadingText.textContent = text;
+        }
+
+        function hideLoading() {
+            ui.loading.style.display = 'none';
+        }
+
+        function loadArchive() {
+            showLoading('Loading history demo...');
+
+            fetch('./pixie-history-1-1-2026.json')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    ui.loadingText.textContent = 'Downloading...';
+                    return response.json();
+                })
+                .then(data => {
+                    ui.loadingText.textContent = 'Processing data...';
+                    processCompressedData(data);
+                    setTimeout(hideLoading, 500);
+                })
+                .catch(error => {
+                    console.error('Error loading history demo:', error);
+                    ui.loadingText.textContent = 'Error: ' + error.message;
+                    ui.loadingText.classList.add('text-red-400');
+                });
+        }
+
+        function processCompressedData(data) {
+            console.log('Processing history demo...');
+            
+            if (!data.palette || !data.segments || data.segments.length === 0) {
+                console.error('Invalid history demo format');
+                ui.loadingText.textContent = 'Error: Invalid history demo format';
+                ui.loadingText.classList.add('text-red-400');
+                return;
+            }
+            
+            const isV2 = data.v === 2;
+            state.timeline.palette = data.palette;
+            
+            // Get dimensions
+            const width = data.width || data.segments[0].snapshot[0].length;
+            const height = data.height || data.segments[0].snapshot.length;
+            
+            state.board.width = width;
+            state.board.height = height;
+            bufferCanvas.width = width;
+            bufferCanvas.height = height;
+            
+            console.log(`${width}x${height}, ${data.palette.length} colors, ${data.segments.length} segments`);
+            
+            // Build final board state
+            let board = null;
+            let currentTime = 0;
+            
+            for (let segIdx = data.segments.length - 1; segIdx >= 0; segIdx--) {
+                const seg = data.segments[segIdx];
+                const snapshot = isV2 ? seg.s : seg.snapshot;
+                
+                if (snapshot) {
+                    board = snapshot.map(row => 
+                        row.map(colorIndex => data.palette[colorIndex])
+                    );
+                    currentTime = isV2 ? seg.t : seg.timestamp;
+                    
+                    // Apply remaining changes from this segment
+                    const changes = isV2 ? seg.c : seg.changes;
+                    for (const change of changes) {
+                        if (isV2) {
+                            const [pos, colorIdx, delta] = change;
+                            const y = Math.floor(pos / width);
+                            const x = pos % width;
+                            board[y][x] = data.palette[colorIdx];
+                            currentTime += delta;
+                        } else {
+                            board[change.y][change.x] = data.palette[change.c];
+                        }
+                    }
+                    break;
+                }
+            }
+            
+            // Render to buffer
+            board.forEach((row, y) => {
+                row.forEach((color, x) => {
+                    bufferCtx.fillStyle = color;
+                    bufferCtx.fillRect(x, y, 1, 1);
+                });
+            });
+            
+            centerView();
+            
+            // Build timeline
+            state.timeline.segments = data.segments;
+            state.timeline.allChanges = [];
+            
+            for (const seg of data.segments) {
+                let time = isV2 ? seg.t : seg.timestamp;
+                const changes = isV2 ? seg.c : seg.changes;
+                
+                for (const change of changes) {
+                    if (isV2) {
+                        const [pos, colorIdx, delta] = change;
+                        time += delta;
+                        const y = Math.floor(pos / width);
+                        const x = pos % width;
+                        state.timeline.allChanges.push({
+                            x, y,
+                            color: data.palette[colorIdx],
+                            timestamp: time
+                        });
+                    } else {
+                        state.timeline.allChanges.push({
+                            x: change.x,
+                            y: change.y,
+                            color: data.palette[change.c],
+                            timestamp: change.t
+                        });
+                    }
+                }
+            }
+            
+            ui.statSegments.textContent = `Segments: ${data.segments.length}`;
+            ui.statChanges.textContent = `Changes: ${data.totalChanges}`;
+            ui.statPalette.textContent = `Palette: ${data.palette.length}`;
+            
+            // Set up timestamps
+            state.timeline.minTimestamp = data.segments[0].timestamp || data.segments[0].t;
+            const lastChange = state.timeline.allChanges[state.timeline.allChanges.length - 1];
+            state.timeline.maxTimestamp = lastChange ? lastChange.timestamp : state.timeline.minTimestamp;
+            
+            updateSliderForMode();
+            ui.slider.disabled = false;
+            ui.modeToggle.disabled = false;
+            
+            if (state.timeline.mode === 'timestamp') {
+                renderAtTimestamp(state.timeline.maxTimestamp);
+            } else {
+                renderAtChangeIndex(state.timeline.allChanges.length);
+            }
+            
+            console.log('History demo loaded!');
+        }
+
+        function updateSliderForMode() {
+            if (state.timeline.mode === 'timestamp') {
+                ui.startTime.textContent = formatTimestamp(state.timeline.minTimestamp);
+                ui.endTime.textContent = formatTimestamp(state.timeline.maxTimestamp);
+                ui.slider.min = state.timeline.minTimestamp;
+                ui.slider.max = state.timeline.maxTimestamp;
+                ui.slider.value = state.timeline.maxTimestamp;
+                ui.slider.step = 1;
+            } else {
+                ui.startTime.textContent = '0';
+                ui.endTime.textContent = state.timeline.allChanges.length.toString();
+                ui.slider.min = 0;
+                ui.slider.max = state.timeline.allChanges.length;
+                ui.slider.value = state.timeline.allChanges.length;
+                ui.slider.step = 1;
+            }
+        }
+
+        function toggleTimelineMode() {
+            const oldMode = state.timeline.mode;
+            state.timeline.mode = state.timeline.mode === 'timestamp' ? 'linear' : 'timestamp';
+            
+            // Update UI
+            const iconContainer = ui.modeToggle.querySelector('svg') || ui.modeToggle.querySelector('i');
+            if (iconContainer) {
+                const newIcon = document.createElement('i');
+                newIcon.className = 'w-3 h-3';
+                if (state.timeline.mode === 'timestamp') {
+                    newIcon.setAttribute('data-lucide', 'clock');
+                    ui.modeLabel.textContent = 'Timestamp';
+                } else {
+                    newIcon.setAttribute('data-lucide', 'list');
+                    ui.modeLabel.textContent = 'Linear';
+                }
+                iconContainer.replaceWith(newIcon);
+                lucide.createIcons();
+            }
+            
+            // Convert slider position between modes
+            let targetValue;
+            if (oldMode === 'timestamp' && state.timeline.mode === 'linear') {
+                const currentTimestamp = parseInt(ui.slider.value);
+                let changeIndex = 0;
+                for (let i = 0; i < state.timeline.allChanges.length; i++) {
+                    if (state.timeline.allChanges[i].timestamp <= currentTimestamp) {
+                        changeIndex = i + 1;
+                    } else {
+                        break;
+                    }
+                }
+                targetValue = changeIndex;
+            } else {
+                const currentIndex = parseInt(ui.slider.value);
+                if (currentIndex > 0 && currentIndex <= state.timeline.allChanges.length) {
+                    targetValue = state.timeline.allChanges[currentIndex - 1].timestamp;
+                } else {
+                    targetValue = state.timeline.maxTimestamp;
+                }
+            }
+            
+            updateSliderForMode();
+            ui.slider.value = targetValue;
+            
+            if (state.timeline.mode === 'timestamp') {
+                renderAtTimestamp(targetValue);
+            } else {
+                renderAtChangeIndex(targetValue);
+            }
+        }
+
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString();
+        }
+
+        function renderAtTimestamp(timestamp) {
+            if (state.timeline.segments.length === 0) return;
+            
+            const isV2 = state.timeline.segments[0].c !== undefined;
+            const width = state.board.width;
+            
+            // Find nearest snapshot before target timestamp
+            let board = null;
+            let appliedChanges = 0;
+            
+            for (const seg of state.timeline.segments) {
+                const snapshot = isV2 ? seg.s : seg.snapshot;
+                const segTime = isV2 ? seg.t : seg.timestamp;
+                
+                if (segTime <= timestamp && snapshot) {
+                    board = snapshot.map(row => 
+                        row.map(colorIndex => state.timeline.palette[colorIndex])
+                    );
+                    break;
+                }
+            }
+            
+            // If no snapshot found, use first one
+            if (!board) {
+                const firstSeg = state.timeline.segments[0];
+                const snapshot = isV2 ? firstSeg.s : firstSeg.snapshot;
+                board = snapshot.map(row => 
+                    row.map(colorIndex => state.timeline.palette[colorIndex])
+                );
+            }
+            
+            // Apply changes up to timestamp
+            for (const change of state.timeline.allChanges) {
+                if (change.timestamp <= timestamp) {
+                    board[change.y][change.x] = change.color;
+                } else {
+                    break;
+                }
+            }
+            
+            // Render to buffer
+            board.forEach((row, y) => {
+                row.forEach((color, x) => {
+                    bufferCtx.fillStyle = color;
+                    bufferCtx.fillRect(x, y, 1, 1);
+                });
+            });
+            
+            ui.statCurrent.textContent = formatTimestamp(timestamp);
+        }
+
+        function renderAtChangeIndex(changeIndex) {
+            if (state.timeline.segments.length === 0) return;
+            
+            const isV2 = state.timeline.segments[0].c !== undefined;
+            const width = state.board.width;
+            
+            // Check if we can do incremental update
+            const lastIndex = state.timeline.lastRenderedIndex || 0;
+            const canIncrement = state.timeline.currentBoard && Math.abs(changeIndex - lastIndex) < 500;
+            
+            if (canIncrement) {
+                // Incremental update - much faster!
+                if (changeIndex > lastIndex) {
+                    // Moving forward - apply changes
+                    for (let i = lastIndex; i < Math.min(changeIndex, state.timeline.allChanges.length); i++) {
+                        const change = state.timeline.allChanges[i];
+                        bufferCtx.fillStyle = change.color;
+                        bufferCtx.fillRect(change.x, change.y, 1, 1);
+                    }
+                } else {
+                    // Moving backward - need to find snapshot and replay
+                    let board = null;
+                    let appliedChanges = 0;
+                    
+                    // Find nearest snapshot before target index
+                    for (const seg of state.timeline.segments) {
+                        const snapshot = isV2 ? seg.s : seg.snapshot;
+                        const changes = isV2 ? seg.c : seg.changes;
+                        const segChanges = changes.length;
+                        
+                        if (snapshot && appliedChanges + segChanges >= changeIndex) {
+                            board = snapshot.map(row => 
+                                row.map(colorIndex => state.timeline.palette[colorIndex])
+                            );
+                            break;
+                        }
+                        
+                        appliedChanges += segChanges;
+                        if (snapshot) {
+                            board = snapshot.map(row => 
+                                row.map(colorIndex => state.timeline.palette[colorIndex])
+                            );
+                        }
+                    }
+                    
+                    if (!board) {
+                        const firstSeg = state.timeline.segments[0];
+                        const snapshot = isV2 ? firstSeg.s : firstSeg.snapshot;
+                        board = snapshot.map(row => 
+                            row.map(colorIndex => state.timeline.palette[colorIndex])
+                        );
+                        appliedChanges = 0;
+                    }
+                    
+                    // Apply changes up to target index
+                    for (let i = appliedChanges; i < Math.min(changeIndex, state.timeline.allChanges.length); i++) {
+                        const change = state.timeline.allChanges[i];
+                        board[change.y][change.x] = change.color;
+                    }
+                    
+                    // Render to buffer
+                    board.forEach((row, y) => {
+                        row.forEach((color, x) => {
+                            bufferCtx.fillStyle = color;
+                            bufferCtx.fillRect(x, y, 1, 1);
+                        });
+                    });
+                }
+            } else {
+                // Full rebuild - use when jumping far or first render
+                let board = null;
+                let appliedChanges = 0;
+                
+                // Find nearest snapshot before target index
+                for (const seg of state.timeline.segments) {
+                    const snapshot = isV2 ? seg.s : seg.snapshot;
+                    const changes = isV2 ? seg.c : seg.changes;
+                    const segChanges = changes.length;
+                    
+                    if (snapshot && appliedChanges + segChanges >= changeIndex) {
+                        board = snapshot.map(row => 
+                            row.map(colorIndex => state.timeline.palette[colorIndex])
+                        );
+                        break;
+                    }
+                    
+                    appliedChanges += segChanges;
+                    if (snapshot) {
+                        board = snapshot.map(row => 
+                            row.map(colorIndex => state.timeline.palette[colorIndex])
+                        );
+                    }
+                }
+                
+                if (!board) {
+                    const firstSeg = state.timeline.segments[0];
+                    const snapshot = isV2 ? firstSeg.s : firstSeg.snapshot;
+                    board = snapshot.map(row => 
+                        row.map(colorIndex => state.timeline.palette[colorIndex])
+                    );
+                    appliedChanges = 0;
+                }
+                
+                // Apply changes up to target index
+                for (let i = appliedChanges; i < Math.min(changeIndex, state.timeline.allChanges.length); i++) {
+                    const change = state.timeline.allChanges[i];
+                    board[change.y][change.x] = change.color;
+                }
+                
+                // Render to buffer
+                board.forEach((row, y) => {
+                    row.forEach((color, x) => {
+                        bufferCtx.fillStyle = color;
+                        bufferCtx.fillRect(x, y, 1, 1);
+                    });
+                });
+            }
+            
+            state.timeline.lastRenderedIndex = changeIndex;
+            ui.statCurrent.textContent = `Change ${changeIndex} / ${state.timeline.allChanges.length}`;
+        }
+
+        function render() {
+            ctx.fillStyle = '#18181b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = false;
+            ctx.setTransform(state.view.zoom, 0, 0, state.view.zoom, state.view.x, state.view.y);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, state.board.width, state.board.height);
+            ctx.drawImage(bufferCanvas, 0, 0);
+
+            if (state.showGrid && state.view.zoom > 4) {
+                ctx.lineWidth = 1 / state.view.zoom;
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.beginPath();
+                for (let x = 0; x <= state.board.width; x++) {
+                    ctx.moveTo(x, 0); ctx.lineTo(x, state.board.height);
+                }
+                for (let y = 0; y <= state.board.height; y++) {
+                    ctx.moveTo(0, y); ctx.lineTo(state.board.width, y);
+                }
+                ctx.stroke();
+            }
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            requestAnimationFrame(render);
+        }
+
+        init();
+    </script>
+</body>
+</html>
