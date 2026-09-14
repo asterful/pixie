@@ -13,11 +13,10 @@ Pixie is a small collaborative canvas server built in Rust. Clients connect over
 This is a view-only replay from an earlier, non-Rust version of Pixie that I made and had filled out by my coworkers. It is not the Rust archive client, does not connect to the server, and does not support painting. It loads its companion history from `docs/pixie-history-1-1-2026.json`.
 
 ## AI Transparency Info
+### <a href="https://www.aihonestybadge.com" target="_blank" rel="noopener"><img src="https://www.aihonestybadge.com/badges/ai-assisted.svg" alt="AI Assisted Badge" width="150"></a>
+AI was used entirely to create the two browser clients. 
 
-<a href="https://www.aihonestybadge.com" target="_blank" rel="noopener"><img src="https://www.aihonestybadge.com/badges/ai-assisted.svg" alt="AI Assisted Badge" width="150"></a>
-
-- AI was used entirely to create the browser clients.
-- For the rest of the Rust server, AI was used as a coding assistant. The architecture, implementation decisions, testing, and final review were made by me.
+For the rest of the Rust server, AI was used as a coding assistant. The architecture, implementation decisions, testing, and final review were made by me.
 
 ## Highlights
 
