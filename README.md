@@ -12,10 +12,12 @@ Pixie is a small collaborative canvas server built in Rust. Clients connect over
 
 This is a view-only replay from an earlier, non-Rust version of Pixie that I made and had filled out by my coworkers. It is not the Rust archive client, does not connect to the server, and does not support painting. It loads its companion history from `docs/pixie-history-1-1-2026.json`.
 
-The project includes two browser clients:
+## AI Transparency Info
 
-- 🖌️ **Live canvas** - paint, pan, zoom, choose colors, download the board, and watch other clients work.
-- ⏪ **Archive viewer** - browse event history, move through snapshots, and play the canvas timeline back.
+<a href="https://www.aihonestybadge.com" target="_blank" rel="noopener"><img src="https://www.aihonestybadge.com/badges/ai-assisted.svg" alt="AI Assisted Badge" width="150"></a>
+
+- AI was used entirely to create the browser clients.
+- For the rest of the Rust server, AI was used as a coding assistant. The architecture, implementation decisions, testing, and final review were made by me.
 
 ## Highlights
 
@@ -28,6 +30,13 @@ The project includes two browser clients:
 | 🔐 Admin controls | Authenticated resize and destructive rollback operations |
 | 🧱 Resilient clients | Full board initialization on connect and after structural changes |
 | 📦 Lightweight deployment | A single Rust binary or Docker image |
+
+## Clients
+
+The project includes two browser clients:
+
+- 🖌️ **Live canvas** - paint, pan, zoom, choose colors, download the board, and watch other clients work.
+- ⏪ **Archive viewer** - browse event history, move through snapshots, and play the canvas timeline back.
 
 ## How It Fits Together
 
