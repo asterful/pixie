@@ -50,7 +50,7 @@ Rust edition 2024 and a current stable Rust toolchain are required.
 cargo run
 ```
 
-The server listens at `ws://127.0.0.1:8080` when accessed locally. The default database path is `place.db`; set `DATABASE_PATH` to place it elsewhere.
+The server listens at `ws://127.0.0.1:8080` when accessed locally. The example configuration stores the database at `/data/place.db`; set `DATABASE_PATH` to place it elsewhere.
 
 ### 3. Open a client
 
@@ -91,13 +91,13 @@ All settings are read once at startup from `.env` or the process environment.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ADMIN_TOKEN` | required | Token used with `?auth=...` to identify admin clients |
-| `DEFAULT_CANVAS_WIDTH` | `128` | Width of a new canvas |
-| `DEFAULT_CANVAS_HEIGHT` | `128` | Height of a new canvas |
-| `DEFAULT_SNAPSHOT_INTERVAL` | `100` | Snapshot interval in recorded events |
-| `RATE_LIMIT_TOKENS` | `5` | Initial and maximum paint tokens per client |
-| `RATE_LIMIT_REFILL_RATE_MS` | `200` | Milliseconds required to refill one paint token |
-| `DATABASE_PATH` | `place.db` | SQLite database path |
+| `ADMIN_TOKEN` | `change-me` | Token used with `?auth=...` to identify admin clients |
+| `DEFAULT_CANVAS_WIDTH` | `256` | Width of a new canvas |
+| `DEFAULT_CANVAS_HEIGHT` | `256` | Height of a new canvas |
+| `DEFAULT_SNAPSHOT_INTERVAL` | `1000` | Snapshot interval in recorded events |
+| `RATE_LIMIT_TOKENS` | `50` | Initial and maximum paint tokens per client |
+| `RATE_LIMIT_REFILL_RATE_MS` | `100` | Milliseconds required to refill one paint token |
+| `DATABASE_PATH` | `/data/place.db` | SQLite database path |
 
 Non-admin clients are rate-limited independently. Admin clients bypass the paint limiter but still use the same validated message format.
 
@@ -219,10 +219,3 @@ clients/
 |- client.html                Live canvas
 `- archive.html               Timeline viewer
 ```
-
-## Notes for Deployment
-
-- Put TLS in front of the WebSocket server for public use and configure clients with `wss://`.
-- Keep `ADMIN_TOKEN` out of source control and avoid embedding it in public client code.
-- Persist the database path outside the container filesystem; the provided Compose file uses `/data` for this purpose.
-- The server currently accepts WebSocket connections directly and does not provide an HTTP route for the HTML clients.

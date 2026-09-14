@@ -18,30 +18,30 @@ pub fn init() {
     let width = std::env::var("DEFAULT_CANVAS_WIDTH")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(128);
+        .unwrap_or(256);
     
     let height = std::env::var("DEFAULT_CANVAS_HEIGHT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(128);
+        .unwrap_or(256);
     
     let snapshot_interval = std::env::var("DEFAULT_SNAPSHOT_INTERVAL")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(100);
+        .unwrap_or(1000);
     
     let db_path = std::env::var("DATABASE_PATH")
-        .unwrap_or_else(|_| "place.db".to_string());
+        .unwrap_or_else(|_| "/data/place.db".to_string());
 
     let rate_limit_tokens = std::env::var("RATE_LIMIT_TOKENS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(5.0);
+        .unwrap_or(50.0);
         
     let rate_limit_refill_rate_ms = std::env::var("RATE_LIMIT_REFILL_RATE_MS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(200.0);
+        .unwrap_or(100.0);
     
     RATE_LIMIT_TOKENS.set(rate_limit_tokens).expect("Failed to set RATE_LIMIT_TOKENS");
     RATE_LIMIT_REFILL_RATE_MS.set(rate_limit_refill_rate_ms).expect("Failed to set RATE_LIMIT_REFILL_RATE_MS");
