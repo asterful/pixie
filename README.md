@@ -4,7 +4,7 @@
 
 Pixie is a small collaborative canvas server built in Rust. Clients connect over WebSocket, paint together on a shared board, and receive updates as they happen. Every change is recorded in SQLite, allowing the included archive client to scrub through the canvas history with snapshot-assisted replay. 🎨
 
-![Pixie canvas preview](docs/example.png)
+<img src="docs/example.png" alt="Pixie canvas preview" width="600">
 
 The project includes two browser clients:
 
