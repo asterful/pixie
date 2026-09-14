@@ -52,7 +52,6 @@ On macOS or Linux, use `cp .env.example .env` instead. Edit `.env` and replace `
 
 ### 2. Run with Cargo
 
-Rust edition 2024 and a current stable Rust toolchain are required.
 
 ```bash
 cargo run
